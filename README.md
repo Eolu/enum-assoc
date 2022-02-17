@@ -12,7 +12,7 @@ use enum_assoc::Assoc;
 const WA: &'static str = "wa";
 
 #[derive(Assoc)]
-#[func(pub fn foo(&self) -> u8)]
+#[func(pub const fn foo(&self) -> u8)]
 #[func(pub fn bar(&self) -> &'static str)]
 #[func(pub fn maybe_foo(&self) -> Option<u8>)]
 enum TestEnum
@@ -92,7 +92,7 @@ fn main()
 ```
 Output:
 ```ignore
-Variant1 foo: 16
+Variant1 foo: None
 Variant2 foo: 34
 Variant1 bar: string
 Variant2 bar: Hello World!
