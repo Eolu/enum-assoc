@@ -1,8 +1,8 @@
 # enum-assoc
 
-This crate defines a few macros that allow you to associate constants with enum variants. 
+This crate defines a few macros that allow you to associate constants or data with enum variants. 
 
-To use, `#[derive(Assoc)]` must be attached to an enum. From there, the `func` attribute is used to define function signtatures which will be implemented for that enum. The `assoc` attribute is used to define constants which each variant will return when that function is called.
+To use, `#[derive(Assoc)]` must be attached to an enum. From there, the `func` attribute is used to define function signatures which will be implemented for that enum. The `assoc` attribute is used to define constants which each variant will return when that function is called.
 
 Here's an example:
 
@@ -31,18 +31,70 @@ enum TestEnum
 
 fn main() 
 {
-    let _ = TestEnum::Variant1;
     println!("Variant1 foo: {}", TestEnum::Variant1.foo());
     println!("Variant2 foo: {}", TestEnum::Variant2.foo());
     println!("Variant3 foo: {}", TestEnum::Variant3.foo());
-    println!("Variant1 s: {}", TestEnum::Variant1.bar());
-    println!("Variant2 s: {}", TestEnum::Variant2.bar());
-    println!("Variant3 s: {}", TestEnum::Variant3.bar());
+    println!("Variant1 bar: {}", TestEnum::Variant1.bar());
+    println!("Variant2 bar: {}", TestEnum::Variant2.bar());
+    println!("Variant3 bar: {}", TestEnum::Variant3.bar());
     println!("Variant1 maybe_foo: {:?}", TestEnum::Variant1.maybe_foo());
     println!("Variant2 maybe_foo: {:?}", TestEnum::Variant2.maybe_foo());
     println!("Variant3 maybe_foo: {:?}", TestEnum::Variant3.maybe_foo());
 }
 
 ```
+Output:
+```ignore
+Variant1 foo: 255
+Variant2 foo: 8
+Variant3 foo: 0
+Variant1 bar: wow
+Variant2 bar: wee
+Variant3 bar: wa
+Variant1 maybe_foo: None
+Variant2 maybe_foo: None
+Variant3 maybe_foo: Some(20)
+```
 
 Note that functions which return an `Option` type have special functionality: Variants may leave out the `assoc` attribute entirely to automatically return `None`, and variants which do yield a value need not explicitly wrap it in `Some`. 
+
+And while technically not the original intention of this crate, you can generate some more interesting/complex associations for free:
+```rust
+use enum_assoc::Assoc;
+
+#[derive(Assoc)]
+#[func(pub fn foo(&self, param: u8) -> Option<u8>)]
+#[func(pub fn bar(&self, param: &'static str) -> String)]
+enum TestEnum2
+{
+    #[assoc(bar = String::new() + param)] 
+    Variant1,
+    #[assoc(foo = 16 + param)] 
+    #[assoc(bar = String::from("Hello") + param)] 
+    Variant2,
+    #[assoc(bar = some_str_func("!"))] 
+    Variant3
+}
+
+fn some_str_func(s: &'static str) -> String
+{
+    String::from("I was created in a function") + s
+}
+
+fn main() 
+{
+    println!("Variant1 foo: {:?}", TestEnum2::Variant1.foo(0));
+    println!("Variant2 foo: {:?}", TestEnum2::Variant2.foo(22));
+    println!("Variant1 bar: {}", TestEnum2::Variant1.bar("string"));
+    println!("Variant2 bar: {}", TestEnum2::Variant2.bar(" World!"));
+    println!("Variant3 bar: {}", TestEnum2::Variant3.bar("!"));
+}
+```
+Output:
+```ignore
+Variant1 foo: 16
+Variant2 foo: 34
+Variant1 bar: string
+Variant2 bar: Hello World!
+Variant3 bar: I was created in a function!
+```
