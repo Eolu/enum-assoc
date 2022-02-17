@@ -2,7 +2,7 @@
 
 This crate defines a few macros that allow you to associate constants with enum variants. 
 
-To use, `#[derive(Assoc)]` must be attached to an enum. From there, the `func` attribute is used to define function signtatures which will be attached to that enum. The `assoc` atribute is used to define constants which each variant will return when that function is called.
+To use, `#[derive(Assoc)]` must be attached to an enum. From there, the `func` attribute is used to define function signtatures which will be implemented for that enum. The `assoc` attribute is used to define constants which each variant will return when that function is called.
 
 Here's an example:
 
