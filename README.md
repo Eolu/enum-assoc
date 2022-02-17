@@ -72,7 +72,7 @@ enum TestEnum2
     #[assoc(foo = 16 + param)] 
     #[assoc(bar = String::from("Hello") + param)] 
     Variant2,
-    #[assoc(bar = some_str_func("!"))] 
+    #[assoc(bar = some_str_func(param))] 
     Variant3
 }
 
