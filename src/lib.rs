@@ -1,5 +1,6 @@
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))]
 
+use syn::{Error, Result};
 use proc_macro::TokenStream;
 use quote::quote;
 
@@ -9,10 +10,12 @@ const ASSOC_ATTR: &'static str = "assoc";
 #[proc_macro_derive(Assoc, attributes(func, assoc))]
 pub fn derive_assoc(input: TokenStream) -> TokenStream 
 {
-    impl_macro(&syn::parse(input).expect("Faield ot parse input"))
+    impl_macro(&syn::parse(input).expect("Failed to parse macro input"))
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
 }
 
-fn impl_macro(ast: &syn::DeriveInput) -> TokenStream
+fn impl_macro(ast: &syn::DeriveInput) -> Result<proc_macro2::TokenStream>
 {
     let name = &ast.ident;
     let fn_attrs = ast.attrs
@@ -21,9 +24,18 @@ fn impl_macro(ast: &syn::DeriveInput) -> TokenStream
         .map(|attr|
         {
             let s = attr.tokens.to_string();
-            s[1..s.len()-1].parse().expect("Failed to parse attribute")
+            match s[1..s.len()-1].parse::<proc_macro2::TokenStream>()
+            {
+                Ok(result) => Ok(result),
+                _ => Err(Error::new_spanned(attr, "Failed to parse attribute"))
+            }
         })
-        .collect::<Vec<proc_macro2::TokenStream>>();
+        .collect::<Result<Vec<proc_macro2::TokenStream>>>();
+    let fn_attrs = match fn_attrs
+    {
+        Ok(fn_attrs) => fn_attrs,
+        Err(e) => return Err(e)
+    };
     let fn_names = fn_attrs.iter()
         .filter_map
         (
@@ -55,12 +67,12 @@ fn impl_macro(ast: &syn::DeriveInput) -> TokenStream
     }
     else
     {
-        panic!("#[derive(Assoc)] only applicable to enums")
+        return Err(Error::new_spanned(ast, "#[derive(Assoc)] only applicable to enums"));
     };
-    let functions = fn_attrs.iter().zip(fn_names.iter()).zip(fn_options.into_iter()).map
+    let functions: Result<Vec<_>> = fn_attrs.iter().zip(fn_names.iter()).zip(fn_options.into_iter()).map
     ( |((attr, name), is_option)|
     {
-        let arms = variants.iter().map(move |variant| 
+        let arms: Result<Vec<_>> = variants.iter().map(move |variant| 
         {
             let var_ident = &variant.ident;
             let fields = match &variant.fields
@@ -85,14 +97,52 @@ fn impl_macro(ast: &syn::DeriveInput) -> TokenStream
                 .attrs
                 .iter()
                 .filter(|assoc_attr| assoc_attr.path.is_ident(ASSOC_ATTR))
-                .map(|attr| extract_val(&attr.tokens))
-                .filter(|(inner_name, _)| inner_name.to_string() == name.as_str())
-                .map(|(_, val)| val)
-                .collect::<Vec<proc_macro2::TokenStream>>();
+                .map(|attr| 
+                {
+                    let s = attr.tokens.to_string();
+                    let s = &s[1..s.len()-1];
+                    let first_eq = match s.find("=")
+                    {
+                        Some(result) => result,
+                        None => return Err(Error::new_spanned(attr, "Invalid `assoc` attribute, missing `=`"))
+                    };
+                    let r: (proc_macro2::TokenStream, proc_macro2::TokenStream) = 
+                    (
+                        match s[..first_eq].trim().parse()
+                        {
+                            Ok(fn_name) => fn_name,
+                            Err(_) => return Err(Error::new_spanned(attr, "Invalid `assoc` attribute, failed to parse left side"))
+                        },
+                        match s[first_eq+1..].trim().parse()
+                        {
+                            Ok(val) => val,
+                            Err(_) => return Err(Error::new_spanned(attr, "Invalid `assoc` attribute, failed to parse right side"))
+                        }
+                    );
+                    Ok(r)
+                    
+                })
+                .filter(|result| 
+                {
+                    match result
+                    {
+                        Ok((inner_name, _)) => inner_name.to_string() == name.as_str(),
+                        Err(_) => true
+                    }
+                })
+                .map(|result| 
+                {
+                    match result
+                    {
+                        Ok((_, val)) => Ok(val),
+                        Err(e) => Err(e)
+                    }
+                })
+                .collect::<Result<Vec<proc_macro2::TokenStream>>>()?;
             match assocs.len()
             {
-                0 if is_option => quote!{ Self::#var_ident #fields => None },
-                0 => panic!("Missing `assoc` attribute for `{}`", name),
+                0 if is_option => Ok(quote!{ Self::#var_ident #fields => None }),
+                0 => Err(Error::new_spanned(variant, format!("Missing `assoc` attribute for {}", name))),
                 1 => 
                 {
                     let val = &assocs[0];
@@ -100,22 +150,27 @@ fn impl_macro(ast: &syn::DeriveInput) -> TokenStream
                     {
                         if is_some(val)
                         {
-                            quote!{ Self::#var_ident #fields => #val }
+                            Ok(quote!{ Self::#var_ident #fields => #val })
                         }
                         else
                         {
-                            quote!{ Self::#var_ident #fields => Some(#val) }
+                            Ok(quote!{ Self::#var_ident #fields => Some(#val) })
                         }
                     }
                     else
                     {
-                        quote!{ Self::#var_ident #fields => #val }
+                        Ok(quote!{ Self::#var_ident #fields => #val })
                     }
                 }
-                _ => panic!("Too many `assoc` attributes for `{}`", name)
+                _ => Err(Error::new_spanned(variant, format!("Too many `assoc` attributes for {}", name)))
             }
-        });
-        quote!
+        }).collect();
+        let arms = match arms
+        {
+            Ok(arms) => arms,
+            Err(e) => return Err(e)
+        };
+        Ok(quote!
         {
             #attr
             {
@@ -124,29 +179,21 @@ fn impl_macro(ast: &syn::DeriveInput) -> TokenStream
                     #(#arms),*
                 }
             }
-        }
+        })
     }
-    ).collect::<Vec<_>>();
-    quote!
+    ).collect();
+    let functions = match functions
+    {
+        Ok(functions) => functions,
+        Err(e) => return Err(e)
+    };
+    Ok(quote!
     {
         impl #name 
         {
             #(#functions)*
         }
-    }.into()
-}
-
-fn extract_val(t: &proc_macro2::TokenStream) -> (proc_macro2::TokenStream, proc_macro2::TokenStream)
-{
-    let s = t.to_string();
-    let s = &s[1..s.len()-1];
-    let first_eq = s.find("=").expect("Invalid `assoc` attribute");
-    (
-        // name
-        s[..first_eq].trim().parse().expect("Invalid `assoc` attribute"), 
-        // val
-        s[first_eq+1..].trim().parse().expect("Invalid `assoc` attribute")
-    )
+    }.into())
 }
 
 fn is_some(t: &proc_macro2::TokenStream) -> bool
