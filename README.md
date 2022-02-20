@@ -64,7 +64,7 @@ use enum_assoc::Assoc;
 
 #[derive(Assoc)]
 #[func(pub fn foo(&self, param: u8) -> Option<u8>)]
-#[func(pub fn bar(&self, param: &'static str) -> String)]
+#[func(pub fn bar(&self, param: &str) -> String)]
 enum TestEnum2
 {
     #[assoc(bar = String::new() + param)] 
@@ -76,7 +76,7 @@ enum TestEnum2
     Variant3
 }
 
-fn some_str_func(s: &'static str) -> String
+fn some_str_func(s: &str) -> String
 {
     String::from("I was created in a function") + s
 }
