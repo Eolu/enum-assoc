@@ -1,3 +1,6 @@
+# 0.1.8
+- Fixed a bug which would preclude the use of generics in function signature, provided better documentation.
+
 # 0.1.5
 - Implemented more useful error handling using `syn::Error`.
 

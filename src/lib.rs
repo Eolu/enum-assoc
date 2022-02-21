@@ -38,7 +38,7 @@ fn impl_macro(ast: &syn::DeriveInput) -> Result<proc_macro2::TokenStream>
                 .split("fn ")
                 .skip(1)
                 .next()
-                .map(|s| s.split("(").map(|s| s.trim()).next())
+                .map(|s| s.split(|c: char| !(c.is_alphanumeric() || c == '_')).map(|s| s.trim()).next())
                 .map(|s| s.map(|s| s.to_string()))
         )
         .flatten()
