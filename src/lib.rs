@@ -11,6 +11,7 @@ const ASSOC_ATTR: &'static str = "assoc";
 pub fn derive_assoc(input: TokenStream) -> TokenStream 
 {
     impl_macro(&syn::parse(input).expect("Failed to parse macro input"))
+        // .map(|t| {println!("{}", quote!(#t)); t})
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }
@@ -47,6 +48,7 @@ fn build_function(variants: &[&Variant], func: &ItemFn) -> Result<proc_macro2::T
 {
     let vis = &func.vis;
     let sig = &func.sig;
+    // has_self determines whether or not this a reverse assoc
     let has_self = match func.sig.inputs.first()
     {
         Some(FnArg::Receiver(_)) => true,
@@ -75,7 +77,10 @@ fn build_function(variants: &[&Variant], func: &ItemFn) -> Result<proc_macro2::T
         arms.push((quote!(_ => None,), Wildcard::True))
     }
     // make sure wildcards are last
-    arms.sort_by(|(_, wildcard1), (_, wildcard2)| wildcard1.cmp(wildcard2));
+    if has_self == false
+    {
+        arms.sort_by(|(_, wildcard1), (_, wildcard2)| wildcard1.cmp(wildcard2));
+    }
     let arms = arms.into_iter().map(|(toks, _)| toks);
     let match_on = if has_self
     {
@@ -245,16 +250,24 @@ fn build_variant_arm(variant: &Variant, func: &ItemFn, is_option: bool, has_self
         let mut pat_catch_all = false;
         for pat in assocs.iter()
         {
+            if !fields.is_empty()
+            {
+                return Err(Error::new_spanned(variant, "Reverse associations not allowed for tuple or struct-like variants"))
+            }
             let arm = if is_option
             {
-                quote!(#pat => Some(Self::#var_ident #fields),)
+                quote!(#pat => Some(Self::#var_ident),)
             }
             else
             {
-                quote!(#pat => Self::#var_ident #fields,)
+                quote!(#pat => Self::#var_ident,)
             };
             result = if matches!(pat, syn::Pat::Wild(_))
             {
+                if pat_catch_all
+                {
+                    return Err(syn::Error::new_spanned(pat, "Only 1 wildcard allowed per reverse association"))
+                }
                 pat_catch_all = true;
                 quote!(#result #arm)
             }

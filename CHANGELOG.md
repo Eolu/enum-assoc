@@ -1,3 +1,6 @@
+# 0.3.0
+- Added more errors when something unreasonable is done
+
 # 0.2.0
 - Added reverse associations.
 - Code quality improvement

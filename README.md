@@ -159,7 +159,17 @@ fn main()
     println!("TestEnum3 baz(3, 7): {:?}", TestEnum3::baz(3, 7));
     println!("TestEnum3 baz(0, 0): {:?}", TestEnum3::baz(0, 0));
 }
-
+```
+Output:
+```ignore
+TestEnum3 foo("variant1"): Some(Variant1)
+TestEnum3 foo("variant3"): Some(Variant3)
+TestEnum3 foo("I'm variant 3!"): Some(Variant3)
+TestEnum3 foo("I don't exist"): None
+TestEnum3 bar(2): Variant2
+TestEnum3 bar(55): Variant1
+TestEnum3 baz(3, 7): Variant2
+TestEnum3 _baz(0, 0): Variant3
 ```
 
 Reverse associations work slightly differently than forward associations: 
