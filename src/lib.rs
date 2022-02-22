@@ -45,6 +45,7 @@ fn impl_macro(ast: &syn::DeriveInput) -> Result<proc_macro2::TokenStream>
 
 fn build_function(variants: &[&Variant], func: &ItemFn) -> Result<proc_macro2::TokenStream>
 {
+    let vis = &func.vis;
     let sig = &func.sig;
     let has_self = match func.sig.inputs.first()
     {
@@ -118,7 +119,7 @@ fn build_function(variants: &[&Variant], func: &ItemFn) -> Result<proc_macro2::T
     };
     Ok(quote!
     {
-        #sig
+        #vis #sig
         {
             match #match_on
             {
