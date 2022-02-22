@@ -1,6 +1,6 @@
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))]
 
-use syn::{Error, Result, Variant};
+use syn::{Error, Result, Variant, ItemFn, FnArg};
 use proc_macro::TokenStream;
 use quote::quote;
 
@@ -18,44 +18,11 @@ pub fn derive_assoc(input: TokenStream) -> TokenStream
 fn impl_macro(ast: &syn::DeriveInput) -> Result<proc_macro2::TokenStream>
 {
     let name = &ast.ident;
-    let fn_attrs = ast.attrs
+    let fns = ast.attrs
         .iter()
         .filter(|attr| attr.path.is_ident(FUNC_ATTR))
-        .map(|attr|
-        {
-            let s = attr.tokens.to_string();
-            match s[1..s.len()-1].parse::<proc_macro2::TokenStream>()
-            {
-                Ok(result) => Ok(result),
-                _ => Err(Error::new_spanned(attr, "Failed to parse attribute"))
-            }
-        })
-        .collect::<Result<Vec<proc_macro2::TokenStream>>>()?;
-    let fn_names = fn_attrs.iter()
-        .filter_map
-        (
-            |f| f.to_string()
-                .split("fn ")
-                .skip(1)
-                .next()
-                .map(|s| s.split(|c: char| !(c.is_alphanumeric() || c == '_')).map(|s| s.trim()).next())
-                .map(|s| s.map(|s| s.to_string()))
-        )
-        .flatten()
-        .collect::<Vec<String>>();
-    let fn_options = fn_attrs.iter()
-        .filter_map
-        (
-            |f| f.to_string()
-                .split("->")
-                .last()
-                .map(|s| 
-                {
-                    let trimmed = s.trim();
-                    trimmed.starts_with("Option") && trimmed[6..].trim().starts_with("<")
-                })
-        )
-        .collect::<Vec<bool>>();
+        .map(|attr| parse_sig(&attr.tokens))
+        .collect::<Result<Vec<ItemFn>>>()?;
     let variants: Vec<&Variant> = if let syn::Data::Enum(data) = &ast.data
     {
         data.variants.iter().collect()
@@ -64,10 +31,8 @@ fn impl_macro(ast: &syn::DeriveInput) -> Result<proc_macro2::TokenStream>
     {
         panic!("#[derive(Assoc)] only applicable to enums")
     };
-    let functions: Vec<proc_macro2::TokenStream> = fn_attrs.iter()
-        .zip(fn_names.iter())
-        .zip(fn_options.into_iter())
-        .map(|((attr, fn_name), is_option)| build_variant_arms(&variants, attr, fn_name, is_option))
+    let functions: Vec<proc_macro2::TokenStream> = fns.iter()
+        .map(|func| build_function(&variants, &func))
         .collect::<Result<Vec<proc_macro2::TokenStream>>>()?;
     Ok(quote!
     {
@@ -78,27 +43,103 @@ fn impl_macro(ast: &syn::DeriveInput) -> Result<proc_macro2::TokenStream>
     }.into())
 }
 
-fn build_variant_arms(variants: &Vec<&Variant>, attr: &proc_macro2::TokenStream, fn_name: &str, is_option: bool)
-     -> Result<proc_macro2::TokenStream>
+fn build_function(variants: &[&Variant], func: &ItemFn) -> Result<proc_macro2::TokenStream>
 {
-    let arms: Vec<proc_macro2::TokenStream> = variants.iter()
-        .map(|variant| build_variant_arm(variant, fn_name, is_option))
-        .collect::<Result<Vec<proc_macro2::TokenStream>>>()?;
+    let sig = &func.sig;
+    let has_self = match func.sig.inputs.first()
+    {
+        Some(FnArg::Receiver(_)) => true,
+        Some(FnArg::Typed(pat_type)) => 
+        {
+            let pat = &pat_type.pat;
+            quote!(#pat).to_string().trim() == "self"
+        }
+        None => false,
+    };
+    let is_option = if let syn::ReturnType::Type(_, ty) = &func.sig.output
+    {
+        let s = quote!(#ty).to_string();
+        let trimmed = s.trim();
+        trimmed.starts_with("Option") && trimmed.len() > 6 && trimmed[6..].trim().starts_with("<")
+    }
+    else
+    {
+        false
+    };
+    let mut arms = variants.iter()
+        .map(|variant| build_variant_arm(variant, func, is_option, has_self))
+        .collect::<Result<Vec<(proc_macro2::TokenStream, Wildcard)>>>()?;
+    if is_option && !arms.iter().any(|(_, wildcard)| matches!(wildcard, Wildcard::True))
+    { 
+        arms.push((quote!(_ => None,), Wildcard::True))
+    }
+    // make sure wildcards are last
+    arms.sort_by(|(_, wildcard1), (_, wildcard2)| wildcard1.cmp(wildcard2));
+    let arms = arms.into_iter().map(|(toks, _)| toks);
+    let match_on = if has_self
+    {
+        quote!(self)
+    }
+    else if func.sig.inputs.is_empty()
+    {
+        return Err(syn::Error::new_spanned(&func.sig, "Missing parameter"));
+    }
+    else
+    {
+        let mut result = quote!();
+        for input in &func.sig.inputs
+        {
+            match input
+            {
+                FnArg::Receiver(_) => 
+                {
+                    result = quote!(self);
+                    break;
+                },
+                FnArg::Typed(pat_type) => 
+                {
+                    let pat = &pat_type.pat;
+                    result = if result.is_empty()
+                    {
+                        quote!(#pat)
+                    }
+                    else
+                    {
+                        quote!(#result, #pat)
+                    };
+                },
+            }
+        }
+        if func.sig.inputs.len() > 1
+        {
+            result = quote!((#result));
+        }
+        result
+    };
     Ok(quote!
     {
-        #attr
+        #sig
         {
-            match self
+            match #match_on
             {
-                #(#arms),*
+                #(#arms)*
             }
         }
     })
 }
 
-fn build_variant_arm(variant: &Variant, fn_name: &str, is_option: bool) -> Result<proc_macro2::TokenStream>
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum Wildcard
+{
+    False = 0,
+    None = 1,
+    True = 2
+}
+
+fn build_variant_arm(variant: &Variant, func: &ItemFn, is_option: bool, has_self: bool) -> Result<(proc_macro2::TokenStream, Wildcard)>
 {
     let var_ident = &variant.ident;
+    // TODO: These have to be handled quite differently for reverse assoc
     let fields = match &variant.fields
     {
         syn::Fields::Named(fields) => 
@@ -117,6 +158,7 @@ fn build_variant_arm(variant: &Variant, fn_name: &str, is_option: bool) -> Resul
         },
         _ => quote!()
     };
+    // Parse associations
     let assocs = variant
         .attrs
         .iter()
@@ -130,18 +172,14 @@ fn build_variant_arm(variant: &Variant, fn_name: &str, is_option: bool) -> Resul
                 Some(result) => result,
                 None => return Err(Error::new_spanned(attr, "Invalid `assoc` attribute, missing `=`"))
             };
-            let r: (proc_macro2::TokenStream, proc_macro2::TokenStream) = 
+            let r: (syn::Ident, proc_macro2::TokenStream) = 
             (
                 match s[..first_eq].trim().parse()
                 {
-                    Ok(fn_name) => fn_name,
+                    Ok(fn_name) => syn::parse2::<syn::Ident>(fn_name)?,
                     Err(_) => return Err(Error::new_spanned(attr, "Invalid `assoc` attribute, failed to parse left side"))
                 },
-                match s[first_eq+1..].trim().parse()
-                {
-                    Ok(val) => val,
-                    Err(_) => return Err(Error::new_spanned(attr, "Invalid `assoc` attribute, failed to parse right side"))
-                }
+                s[first_eq+1..].trim().parse::<proc_macro2::TokenStream>()?
             );
             Ok(r)
             
@@ -150,47 +188,95 @@ fn build_variant_arm(variant: &Variant, fn_name: &str, is_option: bool) -> Resul
         {
             match result
             {
-                Ok((inner_name, _)) => inner_name.to_string() == fn_name,
+                Ok((inner_name, _)) => *inner_name == func.sig.ident,
                 Err(_) => true
             }
-        })
-        .map(|result| 
-        {
-            match result
-            {
-                Ok((_, val)) => Ok(val),
-                Err(e) => Err(e)
-            }
-        })
-        .collect::<Result<Vec<proc_macro2::TokenStream>>>()?;
-    match assocs.len()
+        });
+    if has_self
     {
-        0 if is_option => Ok(quote!{ Self::#var_ident #fields => None }),
-        0 => Err(Error::new_spanned(variant, format!("Missing `assoc` attribute for {}", fn_name))),
-        1 => 
-        {
-            let val = &assocs[0];
-            if is_option
+        let assocs = assocs.map(|result| 
             {
-                if 
+                match result
                 {
-                    let s = val.to_string();
-                    let trimmed = s.trim();
-                    trimmed.starts_with("Some") && trimmed[4..].trim().starts_with("(")
+                    Ok((_, val)) => syn::parse2::<syn::Expr>(val),
+                    Err(e) => Err(e)
                 }
+            })
+            .collect::<Result<Vec<syn::Expr>>>()?;
+        match assocs.len()
+        {
+            0 if is_option => Ok(quote!{ Self::#var_ident #fields => None, }),
+            0 => Err(Error::new_spanned(variant, format!("Missing `assoc` attribute for {}", func.sig.ident))),
+            1 => 
+            {
+                let val = &assocs[0];
+                if is_option
                 {
-                    Ok(quote!{ Self::#var_ident #fields => #val })
+                    if quote!(#val).to_string().trim() == "None"
+                    {
+                        Ok(quote!{ Self::#var_ident #fields => #val, })
+                    }
+                    else
+                    {
+                        Ok(quote!{ Self::#var_ident #fields => Some(#val), })
+                    }
                 }
                 else
                 {
-                    Ok(quote!{ Self::#var_ident #fields => Some(#val) })
+                    Ok(quote!{ Self::#var_ident #fields => #val, })
                 }
+            }
+            _ => Err(Error::new_spanned(variant, format!("Too many `assoc` attributes for {}", func.sig.ident)))
+        }.map(|toks| (toks, Wildcard::None))
+    }
+    else
+    {
+        let assocs = assocs.map(|result| 
+            {
+                match result
+                {
+                    Ok((_, val)) => syn::parse2::<syn::Pat>(val),
+                    Err(e) => Err(e)
+                }
+            })
+            .collect::<Result<Vec<syn::Pat>>>()?;
+        let mut result = quote!();
+        let mut pat_catch_all = false;
+        for pat in assocs.iter()
+        {
+            let arm = if is_option
+            {
+                quote!(#pat => Some(Self::#var_ident #fields),)
             }
             else
             {
-                Ok(quote!{ Self::#var_ident #fields => #val })
+                quote!(#pat => Self::#var_ident #fields,)
+            };
+            result = if matches!(pat, syn::Pat::Wild(_))
+            {
+                pat_catch_all = true;
+                quote!(#result #arm)
             }
+            else
+            {
+                quote!(#arm #result)
+            };
         }
-        _ => Err(Error::new_spanned(variant, format!("Too many `assoc` attributes for {}", fn_name)))
+        Ok((result, if pat_catch_all {Wildcard::True} else {Wildcard::False}))
+    }
+}
+
+/// Parse a function signature from an atribute
+fn parse_sig(tokens: &proc_macro2::TokenStream) -> Result<ItemFn>
+{
+    let s = tokens.to_string();
+    if s.len() > 2
+    {
+        let s = format!("{}{{}}", &s[1..s.len()-1]);
+        syn::parse_str::<ItemFn>(&s)
+    }
+    else
+    {
+        Err(syn::Error::new_spanned(tokens, "Missing function signature"))
     }
 }

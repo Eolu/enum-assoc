@@ -1,3 +1,7 @@
+# 0.2.0
+- Added reverse associations.
+- Code quality improvement
+
 # 0.1.8
 - Fixed a bug which would preclude the use of generics in function signature, provided better documentation.
 

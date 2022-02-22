@@ -4,6 +4,8 @@ This crate defines a few macros that allow you to associate constants or data wi
 
 To use, `#[derive(Assoc)]` must be attached to an enum. From there, the `func` attribute is used to define function signatures which will be implemented for that enum. The `assoc` attribute is used to define constants which each variant will return when that function is called.
 
+## Forward associations
+
 Here's an example:
 
 ```rust
@@ -56,7 +58,7 @@ Variant3 maybe_foo: Some(20)
 
 Note that functions which return an `Option` type have special functionality: Variants may leave out the `assoc` attribute entirely to automatically return `None`, and variants which do yield a value need not explicitly wrap it in `Some`. 
 
-# What does this output?
+### What does this output?
 
 Every `#[func(fn_signature)]` attribute generates something like the following:
 
@@ -118,4 +120,75 @@ Variant1 bar: string
 Variant2 bar: Hello World!
 Variant3 bar: I was created in a function!
 Variant3 baz: Some("1")
+```
+
+## Reverse associations
+
+This can also generate reverse associations (constants to enum variants). See below for an example.
+
+```rust
+use enum_assoc::Assoc;
+
+#[derive(Assoc, Debug)]
+#[func(pub fn reverse_foo(s: &str) -> Option<Self>)]
+#[func(pub fn reverse_bar(u: u8) -> Self)]
+#[func(pub fn reverse_baz(u1: u8, u2: u8) -> Self)]
+enum TestEnum3
+{
+    #[assoc(reverse_foo = "variant1")] 
+    #[assoc(reverse_bar = _)] 
+    Variant1,
+    #[assoc(reverse_bar = 2)] 
+    #[assoc(reverse_foo = "variant2")] 
+    #[assoc(reverse_baz = (3, 7))] 
+    Variant2,
+    #[assoc(reverse_foo = "I'm variant 3!")] 
+    #[assoc(reverse_foo = "variant3")] 
+    #[assoc(reverse_baz = _)] 
+    Variant3
+}
+
+fn main() 
+{
+    println!("TestEnum3 reverse_foo(\"variant1\"): {:?}", TestEnum3::reverse_foo("variant1"));
+    println!("TestEnum3 reverse_foo(\"variant3\"): {:?}", TestEnum3::reverse_foo("variant3"));
+    println!("TestEnum3 reverse_foo(\"I'm variant 3!\"): {:?}", TestEnum3::reverse_foo("I'm variant 3!"));
+    println!("TestEnum3 reverse_foo(\"I don't exist\"): {:?}", TestEnum3::reverse_foo("I don't exist"));
+    println!("TestEnum3 reverse_bar(2): {:?}", TestEnum3::reverse_bar(2));
+    println!("TestEnum3 reverse_bar(55): {:?}", TestEnum3::reverse_bar(55));
+    println!("TestEnum3 reverse_baz(3, 7): {:?}", TestEnum3::reverse_baz(3, 7));
+    println!("TestEnum3 reverse_baz(0, 0): {:?}", TestEnum3::reverse_baz(0, 0));
+}
+
+```
+
+Reverse associations work slightly differently than forward associations: 
+- Reverse associations must not include a `self` parameter (the lack of a `self` paramater is currently what differentiates a forward association from a reverse association)
+- They must return either `Self` or `Option<Self>`
+- Unlike forward associations, any number of `assoc` attributes for the same function may be defined for a single enum variant.
+- Unlike forward associations, the `assoc` attribute defines a pattern rather than an expression. 
+- The function generated will match on a tuple containing all of the function arguments. 
+- The only guarantee regarding order of the match arms is that any wildcard pattern `_` will always be placed at the bottom.  
+- If no wildcard pattern is defined for a function that returns `Option<Self>`, a `_ => None` arm will be inserted automatically.
+
+Currently, there is no way for constants to map to tuple or struct-like variants.  
+
+### What does this output?
+
+Every `#[func(fn_signature)]` attribute for reverse associations generates something like the following:
+
+```rust,ignore
+impl Enum {
+    fn_signature {
+        match (param1, param2, etc) {
+            // ... arms
+        }
+    }
+}
+```
+
+And every `#[assoc(fn_name = pattern)]` attribute for reverse associations generates an arm for its associated function like the following:
+
+```rust,ignore
+    pattern => variant_name,
 ```

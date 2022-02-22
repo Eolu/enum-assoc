@@ -1,6 +1,6 @@
 [package]
 name = "enum-assoc"
-version = "0.1.8"
+version = "0.2.0"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 authors = ["Griffin O'Neill <gsoneill1003@gmail.com>"]
@@ -18,6 +18,6 @@ documentation = "https://docs.rs/enum-assoc"
 proc-macro = true
 
 [dependencies]
-syn = "1.0"
+syn = {version = "1.0", features = ["full"]}
 quote = "1.0"
 proc-macro2 = "1.0"
