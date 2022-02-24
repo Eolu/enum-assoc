@@ -169,7 +169,7 @@ TestEnum3 foo("I don't exist"): None
 TestEnum3 bar(2): Variant2
 TestEnum3 bar(55): Variant1
 TestEnum3 baz(3, 7): Variant2
-TestEnum3 _baz(0, 0): Variant3
+TestEnum3 baz(0, 0): Variant3
 ```
 
 Reverse associations work slightly differently than forward associations: 
@@ -178,10 +178,18 @@ Reverse associations work slightly differently than forward associations:
 - Unlike forward associations, any number of `assoc` attributes for the same function may be defined for a single enum variant.
 - Unlike forward associations, the `assoc` attribute defines a pattern rather than an expression. This is because reverse associations control the left side of a match arm rather than the right side.
 - The function generated will match on a tuple containing all of the function arguments. 
-- The only guarantee regarding order of the match arms is that any wildcard pattern `_` will always be placed at the bottom.  
-- If no wildcard pattern is defined for a function that returns `Option<Self>`, a `_ => None` arm will be inserted automatically.
+- Match arms will be ordered exactly as written from top to bottom with one excpetion: any wildcard pattern `_` will always be placed at the bottom. 
+- There can be no more than 1 wildcard association for any reverse-associative function. Any more will result in a compile error.  
+- If no wildcard pattern is defined for a function that returns `Option<Self>`, a `_ => None` arm will be inserted automatically. 
 
-Currently, there is no way for constants to map to tuple or struct-like variants.  
+So for a simple reverse association to generate valid code, 1 of these 3 conditions must be satisfied:
+1. The reverse association returns `Option<Self>`, or  
+2. A wildcard (`_`) pattern is defined for exactly 1 variant, or
+3. Every possible value maps to an enum variant  
+
+* Note: For reverse associations that return more than 1 argument, it is possible to use wildcards for specific arguments (eg `(5, _)`). This macro does not attempt to re-order this in the same way it does to catch-all wildcards (`_`). The match arm will be placed exactly where it appears in the column of enum attributes. 
+
+Currently, there is no way for reverse associations to map to tuple or struct-like variants.  
 
 ### What does this output?
 

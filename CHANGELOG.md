@@ -1,9 +1,14 @@
+# 0.3.1
+- Now with guaranteed ordering 
+- Added more testing 
+- Better docs 
+
 # 0.3.0
 - Added more errors when something unreasonable is done
 
 # 0.2.0
 - Added reverse associations.
-- Code quality improvement
+- Code quality improvement, using `syn` more and string manipulation less.
 
 # 0.1.8
 - Fixed a bug which would preclude the use of generics in function signature, provided better documentation.

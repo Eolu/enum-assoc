@@ -11,7 +11,7 @@ const ASSOC_ATTR: &'static str = "assoc";
 pub fn derive_assoc(input: TokenStream) -> TokenStream 
 {
     impl_macro(&syn::parse(input).expect("Failed to parse macro input"))
-        // .map(|t| {println!("{}", quote!(#t)); t})
+        .map(|t| {println!("{}", quote!(#t)); t})
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }
@@ -246,8 +246,9 @@ fn build_variant_arm(variant: &Variant, func: &ItemFn, is_option: bool, has_self
                 }
             })
             .collect::<Result<Vec<syn::Pat>>>()?;
-        let mut result = quote!();
-        let mut pat_catch_all = false;
+        let mut concrete_pats: Vec<proc_macro2::TokenStream> = Vec::new();
+        let mut wildcard_pat: Option<proc_macro2::TokenStream> = None;
+        let mut wildcard_status = Wildcard::False;
         for pat in assocs.iter()
         {
             if !fields.is_empty()
@@ -262,25 +263,29 @@ fn build_variant_arm(variant: &Variant, func: &ItemFn, is_option: bool, has_self
             {
                 quote!(#pat => Self::#var_ident,)
             };
-            result = if matches!(pat, syn::Pat::Wild(_))
+            if matches!(pat, syn::Pat::Wild(_))
             {
-                if pat_catch_all
+                if wildcard_pat.is_some()
                 {
                     return Err(syn::Error::new_spanned(pat, "Only 1 wildcard allowed per reverse association"))
                 }
-                pat_catch_all = true;
-                quote!(#result #arm)
+                wildcard_status = Wildcard::True;
+                wildcard_pat = Some(arm);
             }
             else
             {
-                quote!(#arm #result)
-            };
+                concrete_pats.push(arm);
+            }
         }
-        Ok((result, if pat_catch_all {Wildcard::True} else {Wildcard::False}))
+        if let Some(wildcard_pat) = wildcard_pat
+        {
+            concrete_pats.push(wildcard_pat)
+        }
+        Ok((quote!(#(#concrete_pats) *), wildcard_status))
     }
 }
 
-/// Parse a function signature from an atribute
+/// Parse a function signature from an attribute
 fn parse_sig(tokens: &proc_macro2::TokenStream) -> Result<ItemFn>
 {
     let s = tokens.to_string();
