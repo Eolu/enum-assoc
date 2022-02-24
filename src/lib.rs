@@ -11,7 +11,7 @@ const ASSOC_ATTR: &'static str = "assoc";
 pub fn derive_assoc(input: TokenStream) -> TokenStream 
 {
     impl_macro(&syn::parse(input).expect("Failed to parse macro input"))
-        .map(|t| {println!("{}", quote!(#t)); t})
+        //.map(|t| {println!("{}", quote!(#t)); t})
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }
