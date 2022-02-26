@@ -46,10 +46,10 @@ fn impl_macro(ast: &syn::DeriveInput) -> Result<proc_macro2::TokenStream>
 
 fn build_function(variants: &[&Variant], func: DeriveFunc) -> Result<proc_macro2::TokenStream>
 {
-    let vis = &func.fn_item.vis;
-    let sig = &func.fn_item.sig;
+    let vis = &func.vis;
+    let sig = &func.sig;
     // has_self determines whether or not this a reverse assoc
-    let has_self = match func.fn_item.sig.inputs.first()
+    let has_self = match func.sig.inputs.first()
     {
         Some(FnArg::Receiver(_)) => true,
         Some(FnArg::Typed(pat_type)) => 
@@ -59,7 +59,7 @@ fn build_function(variants: &[&Variant], func: DeriveFunc) -> Result<proc_macro2
         }
         None => false,
     };
-    let is_option = if let syn::ReturnType::Type(_, ty) = &func.fn_item.sig.output
+    let is_option = if let syn::ReturnType::Type(_, ty) = &func.sig.output
     {
         let s = quote!(#ty).to_string();
         let trimmed = s.trim();
@@ -70,7 +70,7 @@ fn build_function(variants: &[&Variant], func: DeriveFunc) -> Result<proc_macro2
         false
     };
     let mut arms = variants.iter()
-        .map(|variant| build_variant_arm(variant, &func.fn_item, is_option, has_self))
+        .map(|variant| build_variant_arm(variant, &func.sig.ident, is_option, has_self))
         .collect::<Result<Vec<(proc_macro2::TokenStream, Wildcard)>>>()?;
     if is_option && !arms.iter().any(|(_, wildcard)| matches!(wildcard, Wildcard::True))
     { 
@@ -86,14 +86,14 @@ fn build_function(variants: &[&Variant], func: DeriveFunc) -> Result<proc_macro2
     {
         quote!(self)
     }
-    else if func.fn_item.sig.inputs.is_empty()
+    else if func.sig.inputs.is_empty()
     {
         return Err(syn::Error::new(func.span, "Missing parameter"));
     }
     else
     {
         let mut result = quote!();
-        for input in &func.fn_item.sig.inputs
+        for input in &func.sig.inputs
         {
             match input
             {
@@ -116,7 +116,7 @@ fn build_function(variants: &[&Variant], func: DeriveFunc) -> Result<proc_macro2
                 },
             }
         }
-        if func.fn_item.sig.inputs.len() > 1
+        if func.sig.inputs.len() > 1
         {
             result = quote!((#result));
         }
@@ -134,7 +134,7 @@ fn build_function(variants: &[&Variant], func: DeriveFunc) -> Result<proc_macro2
     })
 }
 
-fn build_variant_arm(variant: &Variant, func: &ItemFn, is_option: bool, has_self: bool) -> Result<(proc_macro2::TokenStream, Wildcard)>
+fn build_variant_arm(variant: &Variant, func: &syn::Ident, is_option: bool, has_self: bool) -> Result<(proc_macro2::TokenStream, Wildcard)>
 {
     // Partially parse associations
     let assocs = Association::get_variant_assocs(variant, !has_self)
@@ -142,13 +142,13 @@ fn build_variant_arm(variant: &Variant, func: &ItemFn, is_option: bool, has_self
         {
             match result
             {
-                Ok(assoc) => assoc.func == func.sig.ident,
+                Ok(assoc) => assoc.func == *func,
                 Err(_) => true
             }
         });
     if has_self
     {
-        build_fwd_assoc(assocs, variant, is_option, &func.sig.ident)
+        build_fwd_assoc(assocs, variant, is_option, func)
     }
     else
     {
@@ -253,24 +253,36 @@ fn build_rev_assoc(assocs: impl Iterator<Item = Result<Association>>, variant: &
     Ok((quote!(#(#concrete_pats) *), wildcard_status))
 }
 
+/// A container for a function parsed within a `func` attribute. Note that the 
+/// span of the `func` atribute is included because the syn nodes were 
+/// manipulated as a string and have lost therr own span information.
 struct DeriveFunc
 {
-    fn_item: ItemFn,
+    vis: syn::Visibility,
+    sig: syn::Signature,
     span: proc_macro2::Span
 }
 
+/// An association. Contains a function ident as well as the actual tokens of
+/// the VALUE (not the variant) of the association. 
 struct Association
 {
     func: syn::Ident,
     assoc: AssociationType
 }
 
+/// An expression for a forward association, a pattern for a reverse 
+/// association.
 enum AssociationType
 {
     Expr(syn::Expr),
     Pat(syn::Pat)
 }
 
+/// For reverse associations, this enum keeps track of wldcard patterns. For 
+/// forward associations, the value is always set to "None". This is also used
+/// to sort reverse associations appropriately. If more complex sorting is to
+/// be implemented, updating this enum would be the best way to start.
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 enum Wildcard
 {
@@ -288,7 +300,8 @@ impl DeriveFunc
         if s.len() > 2
         {
             let s = format!("{}{{}}", &s[1..s.len()-1]);
-            Ok(DeriveFunc{ fn_item: syn::parse_str::<ItemFn>(&s)?, span: tokens.span() })
+            let fn_item = syn::parse_str::<ItemFn>(&s)?;
+            Ok(DeriveFunc{ vis: fn_item.vis, sig: fn_item.sig, span: tokens.span() })
         }
         else
         {
@@ -351,6 +364,8 @@ impl AssociationType
         }
         else
         {
+            // This should be unreachable. Seeing this means a forward
+            // association was parsed as if it were a reverse association.
             panic!("Attempted to unwrap pattern as expression")
         }
     }
@@ -363,6 +378,8 @@ impl AssociationType
         }
         else
         {
+            // This should be unreachable. Seeing this means a reverse 
+            // association was parsed as if it were a forward association.
             panic!("Attempted to unwrap expression as pattern")
         }
     }
