@@ -356,6 +356,7 @@ impl AssociationType
         }
     }
 
+    /// Appllicable to forward associations only
     fn unwrap_expr(self) -> syn::Expr
     {
         if let Self::Expr(expr) = self
@@ -370,6 +371,7 @@ impl AssociationType
         }
     }
 
+    /// Appllicable to reverse associations only
     fn unwrap_pat(self) -> syn::Pat
     {
         if let Self::Pat(pat) = self
