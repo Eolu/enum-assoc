@@ -19,6 +19,8 @@ pub fn derive_assoc(input: TokenStream) -> TokenStream
 fn impl_macro(ast: &syn::DeriveInput) -> Result<proc_macro2::TokenStream>
 {
     let name = &ast.ident;
+    let generics = &ast.generics;
+    let generic_params = &generics.params;
     let fns = ast.attrs
         .iter()
         .filter(|attr| attr.path.is_ident(FUNC_ATTR))
@@ -37,7 +39,7 @@ fn impl_macro(ast: &syn::DeriveInput) -> Result<proc_macro2::TokenStream>
         .collect::<Result<Vec<proc_macro2::TokenStream>>>()?;
     Ok(quote!
     {
-        impl #name 
+        impl <#generic_params> #name #generics
         {
             #(#functions)*
         }

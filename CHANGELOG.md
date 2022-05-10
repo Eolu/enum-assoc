@@ -1,3 +1,6 @@
+# 0.3.4
+- Added limited support for lifetimes and generics. Trait bounds still not implemented properly.
+
 # 0.3.1
 - Now with guaranteed ordering 
 - Added more testing 

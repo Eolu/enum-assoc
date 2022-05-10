@@ -66,6 +66,35 @@ mod some_mod
     }
 }
 
+#[derive(Assoc)]
+#[func(pub fn foo(&'a self) -> Option<()>)]
+pub enum TestEnum4<'a> 
+{
+    #[assoc(foo = ())] 
+    Variant1 { some_str: &'a str },
+    Variant2
+}
+
+#[derive(Assoc)]
+#[func(pub fn foo(&'a self) -> Option<()>)]
+pub enum TestEnum5<'a, 'b> 
+{
+    #[assoc(foo = ())] 
+    Variant1 { some_str: &'a str, some_str_2: &'b str },
+    Variant2
+}
+
+#[derive(Assoc)]
+#[func(pub fn foo(&self, t: T) -> Option<u8>)]
+pub enum TestEnum6<'a, T> 
+{
+    #[assoc(foo = 1)] 
+    Variant1 { some_str: &'a str },
+    Variant2,
+    #[assoc(foo = 3)] 
+    Variant3(T)
+}
+
 #[test]
 fn test_fwd()
 {
@@ -98,4 +127,14 @@ fn test_rev()
     assert_eq!(TestEnum3::bar(55), TestEnum3::Variant1);
     assert_eq!(TestEnum3::baz(3, 7), TestEnum3::Variant2);
     assert_eq!(TestEnum3::baz(0, 0), TestEnum3::Variant3);
+}
+
+#[test]
+fn test_generics()
+{
+    assert_eq!(TestEnum4::Variant1{some_str: "wow"}.foo(), Some(()));
+    assert_eq!(TestEnum4::Variant2.foo(), None);
+    assert_eq!(TestEnum6::Variant1{some_str: "wow"}.foo(3), Some(1));
+    assert_eq!(TestEnum6::Variant2.foo("this could be anything"), None);
+    assert_eq!(TestEnum6::Variant3("macaroni").foo("cheese"), Some(3));
 }
