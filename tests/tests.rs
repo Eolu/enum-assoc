@@ -95,6 +95,16 @@ pub enum TestEnum6<'a, T>
     Variant3(T)
 }
 
+#[derive(Assoc)]
+#[func(pub fn foo(&self) -> u8 { 0 } )]
+pub enum TestEnumWithDefault
+{
+    #[assoc(foo = 1)]
+    ValueSet,
+    UsingDefault,
+}
+
+
 #[test]
 fn test_fwd()
 {
@@ -137,4 +147,13 @@ fn test_generics()
     assert_eq!(TestEnum6::Variant1{some_str: "wow"}.foo(3), Some(1));
     assert_eq!(TestEnum6::Variant2.foo("this could be anything"), None);
     assert_eq!(TestEnum6::Variant3("macaroni").foo("cheese"), Some(3));
+}
+
+
+
+#[test]
+fn test_default()
+{
+    assert_eq!(TestEnumWithDefault::ValueSet.foo(), 1);
+    assert_eq!(TestEnumWithDefault::UsingDefault.foo(), 0);
 }

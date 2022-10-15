@@ -72,7 +72,7 @@ fn build_function(variants: &[&Variant], func: DeriveFunc) -> Result<proc_macro2
         false
     };
     let mut arms = variants.iter()
-        .map(|variant| build_variant_arm(variant, &func.sig.ident, is_option, has_self))
+        .map(|variant| build_variant_arm(variant, &func.sig.ident, is_option, has_self, &func.def))
         .collect::<Result<Vec<(proc_macro2::TokenStream, Wildcard)>>>()?;
     if is_option && !arms.iter().any(|(_, wildcard)| matches!(wildcard, Wildcard::True))
     { 
@@ -136,7 +136,7 @@ fn build_function(variants: &[&Variant], func: DeriveFunc) -> Result<proc_macro2
     })
 }
 
-fn build_variant_arm(variant: &Variant, func: &syn::Ident, is_option: bool, has_self: bool) -> Result<(proc_macro2::TokenStream, Wildcard)>
+fn build_variant_arm(variant: &Variant, func: &syn::Ident, is_option: bool, has_self: bool, def: &Option<proc_macro2::TokenStream>) -> Result<(proc_macro2::TokenStream, Wildcard)>
 {
     // Partially parse associations
     let assocs = Association::get_variant_assocs(variant, !has_self)
@@ -150,7 +150,7 @@ fn build_variant_arm(variant: &Variant, func: &syn::Ident, is_option: bool, has_
         });
     if has_self
     {
-        build_fwd_assoc(assocs, variant, is_option, func)
+        build_fwd_assoc(assocs, variant, is_option, func, def)
     }
     else
     {
@@ -158,7 +158,7 @@ fn build_variant_arm(variant: &Variant, func: &syn::Ident, is_option: bool, has_
     }
 }
 
-fn build_fwd_assoc(assocs: impl Iterator<Item = Result<Association>>, variant: &Variant, is_option: bool, func_ident: &syn::Ident) 
+fn build_fwd_assoc(assocs: impl Iterator<Item = Result<Association>>, variant: &Variant, is_option: bool, func_ident: &syn::Ident, def: &Option<proc_macro2::TokenStream>) 
     -> Result<(proc_macro2::TokenStream, Wildcard)>
 {
     let var_ident = &variant.ident;
@@ -185,8 +185,18 @@ fn build_fwd_assoc(assocs: impl Iterator<Item = Result<Association>>, variant: &
         .collect::<Result<Vec<syn::Expr>>>()?;
     match assocs.len()
     {
-        0 if is_option => Ok(quote!{ Self::#var_ident #fields => None, }),
-        0 => Err(Error::new_spanned(variant, format!("Missing `assoc` attribute for {}", func_ident))),
+        0 => if let Some(tokens) = def 
+            {
+                Ok(quote!{ Self::#var_ident #fields => #tokens, })
+            } 
+            else if is_option
+            {
+                Ok(quote!{ Self::#var_ident #fields => None, })
+            }
+            else
+            {
+                Err(Error::new_spanned(variant, format!("Missing `assoc` attribute for {}", func_ident)))
+            },
         1 => 
         {
             let val = &assocs[0];
@@ -262,7 +272,8 @@ struct DeriveFunc
 {
     vis: syn::Visibility,
     sig: syn::Signature,
-    span: proc_macro2::Span
+    span: proc_macro2::Span,
+    def: Option<proc_macro2::TokenStream>
 }
 
 /// An association. Contains a function ident as well as the actual tokens of
@@ -298,12 +309,27 @@ impl DeriveFunc
     /// Parse a function signature from an attribute
     fn parse_sig(tokens: &proc_macro2::TokenStream) -> Result<Self>
     {
-        let s = tokens.to_string();
+        let mut s = tokens.to_string();
         if s.len() > 2
         {
-            let s = format!("{}{{}}", &s[1..s.len()-1]);
+            s = format!("{}", &s[1..s.len()-1]);
+            let has_default = &s[s.len()-1..s.len()] == "}";
+            
+            if !has_default {
+                s = format!("{}{{}}", s);
+            }
             let fn_item = syn::parse_str::<ItemFn>(&s)?;
-            Ok(DeriveFunc{ vis: fn_item.vis, sig: fn_item.sig, span: tokens.span() })
+            
+            let def = 
+                if has_default
+                    {
+                        Some(proc_macro2::TokenStream::from(quote::ToTokens::into_token_stream(fn_item.block)))
+                    }
+                    else
+                    {
+                        None
+                    };
+            Ok(DeriveFunc{ vis: fn_item.vis, sig: fn_item.sig,span: tokens.span(), def })
         }
         else
         {
