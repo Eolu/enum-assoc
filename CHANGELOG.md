@@ -1,3 +1,6 @@
+# 0.3.5
+- `func` attributes now now specify default return values.
+
 # 0.3.4
 - Added limited support for lifetimes and generics. Trait bounds still not implemented properly.
 

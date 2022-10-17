@@ -17,12 +17,14 @@ const WA: &'static str = "wa";
 #[func(pub const fn foo(&self) -> u8)]
 #[func(pub fn bar(&self) -> &'static str)]
 #[func(pub fn maybe_foo(&self) -> Option<u8>)]
+#[func(pub fn with_default(&self) -> u8 { 4 })]
 enum TestEnum {
     #[assoc(foo = 255)] 
     #[assoc(bar = "wow")] 
     Variant1,
     #[assoc(foo = 1 + 7)] 
     #[assoc(bar = "wee")] 
+    #[assoc(with_default = 2)] 
     Variant2,
     #[assoc(foo = 0)]
     #[assoc(bar = WA)] 
@@ -40,6 +42,9 @@ fn main() {
     println!("Variant1 maybe_foo: {:?}", TestEnum::Variant1.maybe_foo());
     println!("Variant2 maybe_foo: {:?}", TestEnum::Variant2.maybe_foo());
     println!("Variant3 maybe_foo: {:?}", TestEnum::Variant3.maybe_foo());
+    println!("Variant1 with_default: {:?}", TestEnum::Variant1.with_default());
+    println!("Variant2 with_default: {:?}", TestEnum::Variant2.with_default());
+    println!("Variant3 with_default: {:?}", TestEnum::Variant3.with_default());
 }
 
 ```
@@ -54,6 +59,9 @@ Variant3 bar: wa
 Variant1 maybe_foo: None
 Variant2 maybe_foo: None
 Variant3 maybe_foo: Some(20)
+Variant1 with_default: 4
+Variant2 with_default: 2
+Variant3 with_default: 4
 ```
 
 Note that functions which return an `Option` type have special functionality: Variants may leave out the `assoc` attribute entirely to automatically return `None`, and variants which do yield a value need not explicitly wrap it in `Some`. 

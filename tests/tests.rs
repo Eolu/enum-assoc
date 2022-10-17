@@ -104,7 +104,6 @@ pub enum TestEnumWithDefault
     UsingDefault,
 }
 
-
 #[test]
 fn test_fwd()
 {
@@ -148,8 +147,6 @@ fn test_generics()
     assert_eq!(TestEnum6::Variant2.foo("this could be anything"), None);
     assert_eq!(TestEnum6::Variant3("macaroni").foo("cheese"), Some(3));
 }
-
-
 
 #[test]
 fn test_default()

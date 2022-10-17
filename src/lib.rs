@@ -186,17 +186,17 @@ fn build_fwd_assoc(assocs: impl Iterator<Item = Result<Association>>, variant: &
     match assocs.len()
     {
         0 => if let Some(tokens) = def 
-            {
-                Ok(quote!{ Self::#var_ident #fields => #tokens, })
-            } 
-            else if is_option
-            {
-                Ok(quote!{ Self::#var_ident #fields => None, })
-            }
-            else
-            {
-                Err(Error::new_spanned(variant, format!("Missing `assoc` attribute for {}", func_ident)))
-            },
+        {
+            Ok(quote!{ Self::#var_ident #fields => #tokens, })
+        } 
+        else if is_option
+        {
+            Ok(quote!{ Self::#var_ident #fields => None, })
+        }
+        else
+        {
+            Err(Error::new_spanned(variant, format!("Missing `assoc` attribute for {}", func_ident)))
+        },
         1 => 
         {
             let val = &assocs[0];
@@ -320,15 +320,14 @@ impl DeriveFunc
             }
             let fn_item = syn::parse_str::<ItemFn>(&s)?;
             
-            let def = 
-                if has_default
-                    {
-                        Some(proc_macro2::TokenStream::from(quote::ToTokens::into_token_stream(fn_item.block)))
-                    }
-                    else
-                    {
-                        None
-                    };
+            let def = if has_default
+            {
+                Some(proc_macro2::TokenStream::from(quote::ToTokens::into_token_stream(fn_item.block)))
+            }
+            else
+            {
+                None
+            };
             Ok(DeriveFunc{ vis: fn_item.vis, sig: fn_item.sig,span: tokens.span(), def })
         }
         else
