@@ -1,4 +1,4 @@
-# 0.3.5
+# 0.4.0
 - `func` attributes now now specify default return values.
 
 # 0.3.4
