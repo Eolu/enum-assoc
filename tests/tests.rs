@@ -148,7 +148,17 @@ fn test_fwd() {
     assert_eq!(TestEnum2::Variant2.bar(" World!"), "Hello World!");
     assert_eq!(TestEnum2::Variant3.bar("!"), "I was created in a function!");
     assert_eq!(TestEnum2::Variant3.baz(1), Some("1".to_string()));
+}
+
+#[test]
+fn test_field_access() {
+    // a variant using no field access:
+    assert_eq!(TestEnum3::Variant1.bar(), "1");
+    // access field of a nested tuple:
+    // `_0.bar()`
     assert_eq!(TestEnum3::Variant2(InnerTestEnum1::Variant2).bar(), "2");
+    // 2-levels deep enum nesting and access a struct field with:
+    // `_inner.bar()`
     assert_eq!(
         TestEnum3::Variant2(InnerTestEnum1::Variant3 {
             inner: InnerTestEnum2::Variant1
