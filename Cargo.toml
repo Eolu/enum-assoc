@@ -1,6 +1,6 @@
 [package]
 name = "enum-assoc"
-version = "0.4.0"
+version = "1.0.0"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 authors = ["Griffin O'Neill <gsoneill1003@gmail.com>"]

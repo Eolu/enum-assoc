@@ -1,3 +1,7 @@
+# 1.0.0
+
+- No significant changes. Bugs have not been reported since before 0.4.0 so this is going 1.0.0.
+
 # 0.4.0
 - `func` attributes now now specify default return values.
 
