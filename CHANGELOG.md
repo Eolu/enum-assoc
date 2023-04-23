@@ -1,3 +1,7 @@
+# 1.1.0
+
+- Now capable of referencing variant fields within assoc.
+
 # 1.0.0
 
 - No significant changes. Bugs have not been reported since before 0.4.0 so this is going 1.0.0.
