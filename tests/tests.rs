@@ -2,8 +2,7 @@ use enum_assoc::Assoc;
 
 // A bit of mock data
 const WA: &'static str = "wa";
-fn some_str_func(s: &'static str) -> String
-{
+fn some_str_func(s: &'static str) -> String {
     String::from("I was created in a function") + s
 }
 
@@ -11,102 +10,129 @@ fn some_str_func(s: &'static str) -> String
 #[func(const fn foo(&self) -> u8)]
 #[func(pub fn bar(&self) -> &'static str)]
 #[func(pub fn maybe_foo(&self) -> Option<u8>)]
-enum TestEnum
-{
-    #[assoc(foo = 255)] 
-    #[assoc(bar = "wow")] 
+enum TestEnum {
+    #[assoc(foo = 255)]
+    #[assoc(bar = "wow")]
     Variant1,
-    #[assoc(foo = 1 + 7)] 
-    #[assoc(bar = "wee")] 
+    #[assoc(foo = 1 + 7)]
+    #[assoc(bar = "wee")]
     Variant2,
     #[assoc(foo = 0)]
-    #[assoc(bar = WA)] 
-    #[assoc(maybe_foo = 18 + 2)] 
-    Variant3
+    #[assoc(bar = WA)]
+    #[assoc(maybe_foo = 18 + 2)]
+    Variant3,
 }
 
 #[derive(Assoc)]
 #[func(pub fn foo(&self, param: u8) -> Option<u8>)]
 #[func(pub fn bar(&self, param: &'static str) -> String)]
 #[func(pub fn baz<T: std::fmt::Debug>(&self, param: T) -> Option<String>)]
-enum TestEnum2
-{
-    #[assoc(bar = String::new() + param)] 
+enum TestEnum2 {
+    #[assoc(bar = String::new() + param)]
     Variant1,
-    #[assoc(foo = 12 + param)] 
-    #[assoc(bar = String::from("Hello") + param)] 
+    #[assoc(foo = 12 + param)]
+    #[assoc(bar = String::from("Hello") + param)]
     Variant2,
-    #[assoc(bar = some_str_func("!"))] 
-    #[assoc(baz = format!("{:?}", param))] 
-    Variant3
+    #[assoc(bar = some_str_func("!"))]
+    #[assoc(baz = format!("{:?}", param))]
+    Variant3,
+}
+
+#[derive(Assoc)]
+#[func(pub const fn bar(&self) -> &'static str)]
+enum TestEnum3 {
+    #[assoc(bar = "1")]
+    Variant1,
+    #[assoc(bar = _0.bar())]
+    Variant2(InnerTestEnum1),
+}
+
+#[derive(Assoc)]
+#[func(pub const fn bar(&self) -> &'static str)]
+enum InnerTestEnum1 {
+    #[assoc(bar = "1")]
+    Variant1,
+    #[assoc(bar = "2")]
+    Variant2,
+    #[assoc(bar = _inner.bar())]
+    Variant3 { inner: InnerTestEnum2 },
+}
+
+#[derive(Assoc)]
+#[func(pub const fn bar(&self) -> &'static str)]
+enum InnerTestEnum2 {
+    #[assoc(bar = "1")]
+    Variant1,
+    #[assoc(bar = "2")]
+    Variant2,
 }
 
 // Including a module to test visibility identifiers
-mod some_mod
-{
+mod some_mod {
     use enum_assoc::Assoc;
 
     #[derive(Assoc, Debug, PartialEq, Eq)]
     #[func(pub fn foo(s: &str) -> Option<Self>)]
     #[func(pub(crate) const fn bar(u: u8) -> Self)]
     #[func(pub fn baz(u1: u8, u2: u8) -> Self)]
-    pub enum TestEnum3
-    {
-        #[assoc(foo = "variant1")] 
-        #[assoc(bar = _)] 
+    pub enum TestEnum3 {
+        #[assoc(foo = "variant1")]
+        #[assoc(bar = _)]
         Variant1,
-        #[assoc(bar = 2)] 
-        #[assoc(foo = "variant2")] 
-        #[assoc(baz = (3, 7))] 
+        #[assoc(bar = 2)]
+        #[assoc(foo = "variant2")]
+        #[assoc(baz = (3, 7))]
         Variant2,
-        #[assoc(foo = "I'm variant 3!")] 
-        #[assoc(foo = "variant3")] 
-        #[assoc(baz = _)] 
-        Variant3
+        #[assoc(foo = "I'm variant 3!")]
+        #[assoc(foo = "variant3")]
+        #[assoc(baz = _)]
+        Variant3,
     }
 }
 
 #[derive(Assoc)]
 #[func(pub fn foo(&'a self) -> Option<()>)]
-pub enum TestEnum4<'a> 
-{
-    #[assoc(foo = ())] 
-    Variant1 { some_str: &'a str },
-    Variant2
+pub enum TestEnum4<'a> {
+    #[assoc(foo = ())]
+    Variant1 {
+        some_str: &'a str,
+    },
+    Variant2,
 }
 
 #[derive(Assoc)]
 #[func(pub fn foo(&'a self) -> Option<()>)]
-pub enum TestEnum5<'a, 'b> 
-{
-    #[assoc(foo = ())] 
-    Variant1 { some_str: &'a str, some_str_2: &'b str },
-    Variant2
+pub enum TestEnum5<'a, 'b> {
+    #[assoc(foo = ())]
+    Variant1 {
+        some_str: &'a str,
+        some_str_2: &'b str,
+    },
+    Variant2,
 }
 
 #[derive(Assoc)]
 #[func(pub fn foo(&self, t: T) -> Option<u8>)]
-pub enum TestEnum6<'a, T> 
-{
-    #[assoc(foo = 1)] 
-    Variant1 { some_str: &'a str },
+pub enum TestEnum6<'a, T> {
+    #[assoc(foo = 1)]
+    Variant1 {
+        some_str: &'a str,
+    },
     Variant2,
-    #[assoc(foo = 3)] 
-    Variant3(T)
+    #[assoc(foo = 3)]
+    Variant3(T),
 }
 
 #[derive(Assoc)]
 #[func(pub fn foo(&self) -> u8 { 0 } )]
-pub enum TestEnumWithDefault
-{
+pub enum TestEnumWithDefault {
     #[assoc(foo = 1)]
     ValueSet,
     UsingDefault,
 }
 
 #[test]
-fn test_fwd()
-{
+fn test_fwd() {
     assert_eq!(TestEnum::Variant1.foo(), 255);
     assert_eq!(TestEnum::Variant2.foo(), 8);
     assert_eq!(TestEnum::Variant3.foo(), 0);
@@ -125,8 +151,25 @@ fn test_fwd()
 }
 
 #[test]
-fn test_rev()
-{
+fn test_field_access() {
+    // a variant using no field access:
+    assert_eq!(TestEnum3::Variant1.bar(), "1");
+    // access field of a nested tuple:
+    // `_0.bar()`
+    assert_eq!(TestEnum3::Variant2(InnerTestEnum1::Variant2).bar(), "2");
+    // 2-levels deep enum nesting and access a struct field with:
+    // `_inner.bar()`
+    assert_eq!(
+        TestEnum3::Variant2(InnerTestEnum1::Variant3 {
+            inner: InnerTestEnum2::Variant1
+        })
+        .bar(),
+        "1"
+    );
+}
+
+#[test]
+fn test_rev() {
     use some_mod::TestEnum3;
     assert_eq!(TestEnum3::foo("variant1"), Some(TestEnum3::Variant1));
     assert_eq!(TestEnum3::foo("variant3"), Some(TestEnum3::Variant3));
@@ -139,18 +182,16 @@ fn test_rev()
 }
 
 #[test]
-fn test_generics()
-{
-    assert_eq!(TestEnum4::Variant1{some_str: "wow"}.foo(), Some(()));
+fn test_generics() {
+    assert_eq!(TestEnum4::Variant1 { some_str: "wow" }.foo(), Some(()));
     assert_eq!(TestEnum4::Variant2.foo(), None);
-    assert_eq!(TestEnum6::Variant1{some_str: "wow"}.foo(3), Some(1));
+    assert_eq!(TestEnum6::Variant1 { some_str: "wow" }.foo(3), Some(1));
     assert_eq!(TestEnum6::Variant2.foo("this could be anything"), None);
     assert_eq!(TestEnum6::Variant3("macaroni").foo("cheese"), Some(3));
 }
 
 #[test]
-fn test_default()
-{
+fn test_default() {
     assert_eq!(TestEnumWithDefault::ValueSet.foo(), 1);
     assert_eq!(TestEnumWithDefault::UsingDefault.foo(), 0);
 }

@@ -1,6 +1,6 @@
 # enum-assoc
 
-This crate defines a few macros that allow you to associate constants or data with enum variants. 
+This crate defines a few macros that allow you to associate constants or data with enum variants.
 
 To use, `#[derive(Assoc)]` must be attached to an enum. From there, the `func` attribute is used to define function signatures which will be implemented for that enum. The `assoc` attribute is used to define constants which each variant will return when that function is called.
 
@@ -19,16 +19,16 @@ const WA: &'static str = "wa";
 #[func(pub fn maybe_foo(&self) -> Option<u8>)]
 #[func(pub fn with_default(&self) -> u8 { 4 })]
 enum TestEnum {
-    #[assoc(foo = 255)] 
-    #[assoc(bar = "wow")] 
+    #[assoc(foo = 255)]
+    #[assoc(bar = "wow")]
     Variant1,
-    #[assoc(foo = 1 + 7)] 
-    #[assoc(bar = "wee")] 
-    #[assoc(with_default = 2)] 
+    #[assoc(foo = 1 + 7)]
+    #[assoc(bar = "wee")]
+    #[assoc(with_default = 2)]
     Variant2,
     #[assoc(foo = 0)]
-    #[assoc(bar = WA)] 
-    #[assoc(maybe_foo = 18 + 2)] 
+    #[assoc(bar = WA)]
+    #[assoc(maybe_foo = 18 + 2)]
     Variant3
 }
 
@@ -48,7 +48,9 @@ fn main() {
 }
 
 ```
+
 Output:
+
 ```ignore
 Variant1 foo: 255
 Variant2 foo: 8
@@ -64,7 +66,7 @@ Variant2 with_default: 2
 Variant3 with_default: 4
 ```
 
-Note that functions which return an `Option` type have special functionality: Variants may leave out the `assoc` attribute entirely to automatically return `None`, and variants which do yield a value need not explicitly wrap it in `Some`. 
+Note that functions which return an `Option` type have special functionality: Variants may leave out the `assoc` attribute entirely to automatically return `None`, and variants which do yield a value need not explicitly wrap it in `Some`.
 
 ### What does this output?
 
@@ -89,6 +91,7 @@ And every `#[assoc(fn_name = association)]` attribute generates an arm for its a
 That's it. Both the details of the `fn_signature` you use and what you put in the `association` area are up to you.
 
 So while technically not the original intention of this crate, you can generate some more interesting/complex associations for free:
+
 ```rust
 use enum_assoc::Assoc;
 
@@ -97,13 +100,13 @@ use enum_assoc::Assoc;
 #[func(pub fn bar(&self, param: &str) -> String)]
 #[func(pub fn baz<T: std::fmt::Debug>(&self, param: T) -> Option<String>)]
 enum TestEnum2 {
-    #[assoc(bar = String::new() + param)] 
+    #[assoc(bar = String::new() + param)]
     Variant1,
-    #[assoc(foo = 16 + param)] 
-    #[assoc(bar = String::from("Hello") + param)] 
+    #[assoc(foo = 16 + param)]
+    #[assoc(bar = String::from("Hello") + param)]
     Variant2,
-    #[assoc(bar = some_str_func(param))] 
-    #[assoc(baz = format!("{:?}", param))] 
+    #[assoc(bar = some_str_func(param))]
+    #[assoc(baz = format!("{:?}", param))]
     Variant3
 }
 
@@ -120,7 +123,9 @@ fn main() {
     println!("Variant3 baz: {:?}", TestEnum2::Variant3.baz(1));
 }
 ```
+
 Output:
+
 ```ignore
 Variant1 foo: None
 Variant2 foo: 34
@@ -128,6 +133,52 @@ Variant1 bar: string
 Variant2 bar: Hello World!
 Variant3 bar: I was created in a function!
 Variant3 baz: Some("1")
+```
+
+## Accessing enum fields in `assoc` attribute
+
+It is possible to access an enum variant field value in assoc attribute
+prefixing its name with an underscore. For tuples the names is composed of
+underscore prefix and field index.
+
+```rust,ignore
+use thiserror::Error;
+
+#[derive(Error, Debug, Assoc, Clone)]
+#[func(pub const fn status(&self) -> u16)]
+pub enum ServiceError {
+    #[error("failed to start or finish a transaction")]
+    #[assoc(status = 500)]
+    TransactionError { source: sea_orm::DbErr },
+
+    #[error(transparent)]
+    #[assoc(status = _source.status())]
+    RequestParsingError {
+        source: request_parser::RequestParsingError,
+    },
+}
+
+mod request_parser {
+    use super::*;
+
+    #[derive(Error, Debug, Assoc, Clone)]
+    #[func(pub const status(&self) -> u16)]
+    pub enum RequestParsingError{
+        #[error("provided input was too large")]
+        #[assoc(status = 500)]
+        OutOfMemory
+        #[error("the resource id did not have correct format")]
+        #[assoc(status = 400)]
+        InvalidResourceIdFormat
+        #[error("external validator service returned an error")]
+        #[assoc(status = _0.status())]
+        ExternalValidatorError(validator::Error)
+    }
+}
+
+pub mod validator{
+    //...
+}
 ```
 
 ## Reverse associations
@@ -143,20 +194,20 @@ use enum_assoc::Assoc;
 #[func(pub fn baz(u1: u8, u2: u8) -> Self)]
 enum TestEnum3
 {
-    #[assoc(foo = "variant1")] 
-    #[assoc(bar = _)] 
+    #[assoc(foo = "variant1")]
+    #[assoc(bar = _)]
     Variant1,
-    #[assoc(bar = 2)] 
-    #[assoc(foo = "variant2")] 
-    #[assoc(baz = (3, 7))] 
+    #[assoc(bar = 2)]
+    #[assoc(foo = "variant2")]
+    #[assoc(baz = (3, 7))]
     Variant2,
-    #[assoc(foo = "I'm variant 3!")] 
-    #[assoc(foo = "variant3")] 
-    #[assoc(baz = _)] 
+    #[assoc(foo = "I'm variant 3!")]
+    #[assoc(foo = "variant3")]
+    #[assoc(baz = _)]
     Variant3
 }
 
-fn main() 
+fn main()
 {
     println!("TestEnum3 foo(\"variant1\"): {:?}", TestEnum3::foo("variant1"));
     println!("TestEnum3 foo(\"variant3\"): {:?}", TestEnum3::foo("variant3"));
@@ -168,7 +219,9 @@ fn main()
     println!("TestEnum3 baz(0, 0): {:?}", TestEnum3::baz(0, 0));
 }
 ```
+
 Output:
+
 ```ignore
 TestEnum3 foo("variant1"): Some(Variant1)
 TestEnum3 foo("variant3"): Some(Variant3)
@@ -180,24 +233,26 @@ TestEnum3 baz(3, 7): Variant2
 TestEnum3 baz(0, 0): Variant3
 ```
 
-Reverse associations work slightly differently than forward associations: 
+Reverse associations work slightly differently than forward associations:
+
 - Reverse associations must not include a `self` parameter (the lack of a `self` paramater is what differentiates a forward association from a reverse association)
 - They must return either `Self` or `Option<Self>`
 - Unlike forward associations, any number of `assoc` attributes for the same function may be defined for a single enum variant.
 - Unlike forward associations, the `assoc` attribute defines a pattern rather than an expression. This is because reverse associations control the left side of a match arm rather than the right side.
-- The function generated will match on a tuple containing all of the function arguments. 
-- Match arms will be ordered exactly as written from top to bottom with one excpetion: any wildcard pattern `_` will always be placed at the bottom. 
-- There can be no more than 1 wildcard association for any reverse-associative function. Any more will result in a compile error.  
-- If no wildcard pattern is defined for a function that returns `Option<Self>`, a `_ => None` arm will be inserted automatically. 
+- The function generated will match on a tuple containing all of the function arguments.
+- Match arms will be ordered exactly as written from top to bottom with one excpetion: any wildcard pattern `_` will always be placed at the bottom.
+- There can be no more than 1 wildcard association for any reverse-associative function. Any more will result in a compile error.
+- If no wildcard pattern is defined for a function that returns `Option<Self>`, a `_ => None` arm will be inserted automatically.
 
 So for a simple reverse association to generate valid code, 1 of these 3 conditions must be satisfied:
-1. The reverse association returns `Option<Self>`, or  
+
+1. The reverse association returns `Option<Self>`, or
 2. A wildcard (`_`) pattern is defined for exactly 1 variant, or
-3. Every possible value maps to an enum variant  
+3. Every possible value maps to an enum variant
 
-* Note: For reverse associations that return more than 1 argument, it is possible to use wildcards for specific arguments (eg `(5, _)`). This macro does not attempt to re-order this in the same way it does to catch-all wildcards (`_`). The match arm will be placed exactly where it appears in the column of enum attributes. 
+- Note: For reverse associations that return more than 1 argument, it is possible to use wildcards for specific arguments (eg `(5, _)`). This macro does not attempt to re-order this in the same way it does to catch-all wildcards (`_`). The match arm will be placed exactly where it appears in the column of enum attributes.
 
-Currently, there is no way for reverse associations to map to tuple or struct-like variants.  
+Currently, there is no way for reverse associations to map to tuple or struct-like variants.
 
 ### What does this output?
 
