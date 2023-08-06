@@ -1,8 +1,9 @@
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))]
 
 use proc_macro::TokenStream;
-use quote::quote;
-use syn::{spanned::Spanned, Attribute, Error, FnArg, ItemFn, Result, Variant};
+use quote::{quote, ToTokens};
+use syn::parse::{Parse, ParseStream};
+use syn::{parenthesized, spanned::Spanned, Error, FnArg, Result, Token, Variant};
 
 const FUNC_ATTR: &'static str = "func";
 const ASSOC_ATTR: &'static str = "assoc";
@@ -22,8 +23,8 @@ fn impl_macro(ast: &syn::DeriveInput) -> Result<proc_macro2::TokenStream> {
     let fns = ast
         .attrs
         .iter()
-        .filter(|attr| attr.path.is_ident(FUNC_ATTR))
-        .map(|attr| DeriveFunc::parse_sig(&attr.tokens))
+        .filter(|attr| attr.path().is_ident(FUNC_ATTR))
+        .map(|attr| syn::parse2::<DeriveFunc>(attr.meta.to_token_stream()))
         .collect::<Result<Vec<DeriveFunc>>>()?;
     let variants: Vec<&Variant> = if let syn::Data::Enum(data) = &ast.data {
         data.variants.iter().collect()
@@ -293,70 +294,54 @@ enum Wildcard {
     True = 2,
 }
 
-impl DeriveFunc {
+impl Parse for DeriveFunc {
     /// Parse a function signature from an attribute
-    fn parse_sig(tokens: &proc_macro2::TokenStream) -> Result<Self> {
-        let mut s = tokens.to_string();
-        if s.len() > 2 {
-            s = format!("{}", &s[1..s.len() - 1]);
-            let has_default = &s[s.len() - 1..s.len()] == "}";
-
-            if !has_default {
-                s = format!("{}{{}}", s);
-            }
-            let fn_item = syn::parse_str::<ItemFn>(&s)?;
-
-            let def = if has_default {
-                Some(proc_macro2::TokenStream::from(
-                    quote::ToTokens::into_token_stream(fn_item.block),
-                ))
+    fn parse(input: ParseStream) -> Result<Self> {
+        input.step(|cursor| {
+            if let Some((_, next)) = cursor.token_tree() {
+                Ok(((), next))
             } else {
-                None
-            };
-            Ok(DeriveFunc {
-                vis: fn_item.vis,
-                sig: fn_item.sig,
-                span: tokens.span(),
-                def,
-            })
+                Err(cursor.error("Missing function signature"))
+            }
+        })?;
+        let content;
+        parenthesized!(content in input);
+        let vis = content.parse::<syn::Visibility>()?;
+        let sig = content.parse::<syn::Signature>()?;
+        let def = if content.is_empty() {
+            None
         } else {
-            Err(syn::Error::new_spanned(
-                tokens,
-                "Missing function signature",
-            ))
-        }
+            let block = content.parse::<syn::Block>()?;
+            Some(proc_macro2::TokenStream::from(ToTokens::into_token_stream(
+                block,
+            )))
+        };
+        Ok(DeriveFunc {
+            vis,
+            sig,
+            span: content.span(),
+            def,
+        })
     }
 }
 
 impl Association {
-    fn new(attr: &Attribute, is_reverse: bool) -> Result<Self> {
-        let s = attr.tokens.to_string();
-        let s = &s[1..s.len() - 1];
-        let first_eq = match s.find("=") {
-            Some(result) => result,
-            None => {
-                return Err(Error::new_spanned(
-                    attr,
-                    "Invalid `assoc` attribute, missing `=`",
-                ))
+    fn new(input: ParseStream, is_reverse: bool) -> Result<Self> {
+        input.step(|cursor| {
+            if let Some((_, next)) = cursor.token_tree() {
+                Ok(((), next))
+            } else {
+                Err(cursor.error("Unexpected empty `assoc` attribute"))
             }
-        };
+        })?;
+
+        let content;
+        parenthesized!(content in input);
+        let func = content.parse::<syn::Ident>()?;
+        content.parse::<Token![=]>()?;
         Ok(Association {
-            func: match s[..first_eq].trim().parse() {
-                Ok(fn_name) => syn::parse2::<syn::Ident>(fn_name)?,
-                Err(_) => {
-                    return Err(Error::new_spanned(
-                        attr,
-                        "Invalid `assoc` attribute, failed to parse left side",
-                    ))
-                }
-            },
-            assoc: AssociationType::new(
-                s[first_eq + 1..]
-                    .trim()
-                    .parse::<proc_macro2::TokenStream>()?,
-                is_reverse,
-            )?,
+            func,
+            assoc: AssociationType::new(&content, is_reverse)?,
         })
     }
 
@@ -367,17 +352,22 @@ impl Association {
         variant
             .attrs
             .iter()
-            .filter(|assoc_attr| assoc_attr.path.is_ident(ASSOC_ATTR))
-            .map(move |attr| Association::new(attr, is_reverse))
+            .filter(|assoc_attr| assoc_attr.path().is_ident(ASSOC_ATTR))
+            .map(move |attr| {
+                syn::parse::Parser::parse2(
+                    |input: ParseStream| Association::new(input, is_reverse),
+                    attr.meta.to_token_stream(),
+                )
+            })
     }
 }
 
 impl AssociationType {
-    fn new(tokens: proc_macro2::TokenStream, is_reverse: bool) -> Result<Self> {
+    fn new(input: ParseStream, is_reverse: bool) -> Result<Self> {
         if is_reverse {
-            syn::parse2::<syn::Pat>(tokens).map(AssociationType::Pat)
+            syn::Pat::parse_single(input).map(AssociationType::Pat)
         } else {
-            syn::parse2::<syn::Expr>(tokens).map(AssociationType::Expr)
+            syn::Expr::parse(input).map(AssociationType::Expr)
         }
     }
 
