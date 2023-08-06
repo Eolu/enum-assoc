@@ -1,7 +1,7 @@
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))]
 
 use proc_macro::TokenStream;
-use quote::quote;
+use quote::{quote, ToTokens};
 use syn::{spanned::Spanned, Attribute, Error, FnArg, ItemFn, Result, Variant};
 
 const FUNC_ATTR: &'static str = "func";
@@ -22,8 +22,8 @@ fn impl_macro(ast: &syn::DeriveInput) -> Result<proc_macro2::TokenStream> {
     let fns = ast
         .attrs
         .iter()
-        .filter(|attr| attr.path.is_ident(FUNC_ATTR))
-        .map(|attr| DeriveFunc::parse_sig(&attr.tokens))
+        .filter(|attr| attr.path().is_ident(FUNC_ATTR))
+        .map(|attr| DeriveFunc::parse_sig(&attr.to_token_stream()))
         .collect::<Result<Vec<DeriveFunc>>>()?;
     let variants: Vec<&Variant> = if let syn::Data::Enum(data) = &ast.data {
         data.variants.iter().collect()
@@ -298,7 +298,7 @@ impl DeriveFunc {
     fn parse_sig(tokens: &proc_macro2::TokenStream) -> Result<Self> {
         let mut s = tokens.to_string();
         if s.len() > 2 {
-            s = format!("{}", &s[1..s.len() - 1]);
+            s = format!("{}", &s[7..s.len() - 2]);
             let has_default = &s[s.len() - 1..s.len()] == "}";
 
             if !has_default {
@@ -330,8 +330,8 @@ impl DeriveFunc {
 
 impl Association {
     fn new(attr: &Attribute, is_reverse: bool) -> Result<Self> {
-        let s = attr.tokens.to_string();
-        let s = &s[1..s.len() - 1];
+        let s = attr.to_token_stream().to_string();
+        let s = &s[8..s.len() - 2];
         let first_eq = match s.find("=") {
             Some(result) => result,
             None => {
@@ -367,7 +367,7 @@ impl Association {
         variant
             .attrs
             .iter()
-            .filter(|assoc_attr| assoc_attr.path.is_ident(ASSOC_ATTR))
+            .filter(|assoc_attr| assoc_attr.path().is_ident(ASSOC_ATTR))
             .map(move |attr| Association::new(attr, is_reverse))
     }
 }
@@ -375,7 +375,7 @@ impl Association {
 impl AssociationType {
     fn new(tokens: proc_macro2::TokenStream, is_reverse: bool) -> Result<Self> {
         if is_reverse {
-            syn::parse2::<syn::Pat>(tokens).map(AssociationType::Pat)
+            syn::parse::Parser::parse2(syn::Pat::parse_single, tokens).map(AssociationType::Pat)
         } else {
             syn::parse2::<syn::Expr>(tokens).map(AssociationType::Expr)
         }
