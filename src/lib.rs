@@ -2,7 +2,7 @@
 
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
-use syn::{parse::Parser, punctuated::Punctuated, spanned::Spanned, Attribute, Error, FnArg, ItemFn, Result, Token, Variant};
+use syn::{parenthesized, parse::Parser, punctuated::Punctuated, spanned::Spanned, Attribute, Error, FnArg, ItemFn, Result, Token, Variant};
 
 const FUNC_ATTR: &'static str = "func";
 const ASSOC_ATTR: &'static str = "assoc";
@@ -23,10 +23,7 @@ fn impl_macro(ast: &syn::DeriveInput) -> Result<proc_macro2::TokenStream> {
         .attrs
         .iter()
         .filter(|attr| attr.path().is_ident(FUNC_ATTR))
-        .map(|attr| 
-        {
-            DeriveFunc::parse_sig(attr.meta.require_list().map(|list| &list.tokens)?)
-        })
+        .map(|attr| syn::parse2::<DeriveFunc>(attr.meta.to_token_stream()))
         .collect::<Result<Vec<DeriveFunc>>>()?;
     let variants: Vec<&Variant> = if let syn::Data::Enum(data) = &ast.data {
         data.variants.iter().collect()
@@ -305,37 +302,34 @@ enum Wildcard {
     True = 2,
 }
 
-impl DeriveFunc {
+impl syn::parse::Parse for DeriveFunc {
     /// Parse a function signature from an attribute
-    fn parse_sig(tokens: &proc_macro2::TokenStream) -> Result<Self> {
-        let mut s = tokens.to_string();
-        if s.len() > 2 {
-            let has_default = &s[s.len() - 1..s.len()] == "}";
-
-            if !has_default {
-                s = format!("{}{{}}", s);
-            }
-            let fn_item = syn::parse_str::<ItemFn>(&s)?;
-
-            let def = if has_default {
-                Some(proc_macro2::TokenStream::from(
-                    quote::ToTokens::into_token_stream(fn_item.block),
-                ))
+    fn parse(input: syn::parse::ParseStream) -> Result<Self> {
+        input.step(|cursor| {
+            if let Some((_, next)) = cursor.token_tree() {
+                Ok(((), next))
             } else {
-                None
-            };
-            Ok(DeriveFunc {
-                vis: fn_item.vis,
-                sig: fn_item.sig,
-                span: tokens.span(),
-                def,
-            })
+                Err(cursor.error("Missing function signature"))
+            }
+        })?;
+        let content;
+        parenthesized!(content in input);
+        let vis = content.parse::<syn::Visibility>()?;
+        let sig = content.parse::<syn::Signature>()?;
+        let def = if content.is_empty() {
+            None
         } else {
-            Err(syn::Error::new_spanned(
-                tokens,
-                "Missing function signature",
-            ))
-        }
+            let block = content.parse::<syn::Block>()?;
+            Some(proc_macro2::TokenStream::from(ToTokens::into_token_stream(
+                block,
+            )))
+        };
+        Ok(DeriveFunc {
+            vis,
+            sig,
+            span: content.span(),
+            def,
+        })
     }
 }
 
