@@ -1,4 +1,4 @@
-# 1.1.1
+# 1.2.0
 
 - Implemented comma-separated associations in a single attribute
 - Parsing logic improved to be more canon and sustainable (but still could be more so)
