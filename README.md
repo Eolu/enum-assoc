@@ -137,43 +137,19 @@ prefixing its name with an underscore. For tuples the names is composed of
 underscore prefix and field index.
 
 ```rust,ignore
-use thiserror::Error;
 
-#[derive(Error, Debug, Assoc, Clone)]
-#[func(pub const fn status(&self) -> u16)]
-pub enum ServiceError {
-    #[error("failed to start or finish a transaction")]
-    #[assoc(status = 500)]
-    TransactionError { source: sea_orm::DbErr },
-
-    #[error(transparent)]
-    #[assoc(status = _source.status())]
-    RequestParsingError {
-        source: request_parser::RequestParsingError,
-    },
+#[func(pub fn foo(&self) -> usize]
+pub enum TestEnum1 {
+    #[assoc(foo = s.len())]
+    Variant1 { s: String },
 }
 
-mod request_parser {
-    use super::*;
-
-    #[derive(Error, Debug, Assoc, Clone)]
-    #[func(pub const status(&self) -> u16)]
-    pub enum RequestParsingError{
-        #[error("provided input was too large")]
-        #[assoc(status = 500)]
-        OutOfMemory
-        #[error("the resource id did not have correct format")]
-        #[assoc(status = 400)]
-        InvalidResourceIdFormat
-        #[error("external validator service returned an error")]
-        #[assoc(status = _0.status())]
-        ExternalValidatorError(validator::Error)
-    }
+#[func(pub fn foo(&self) -> usize)]
+pub enum TestEnum1 {
+    #[assoc(foo = _0.len())]
+    Variant1(String),
 }
 
-pub mod validator{
-    //...
-}
 ```
 
 ## Reverse associations
