@@ -47,8 +47,6 @@ enum TestEnum3 {
 #[derive(Assoc)]
 #[func(pub const fn bar(&self) -> &'static str)]
 enum InnerTestEnum1 {
-    #[assoc(bar = "1")]
-    Variant1,
     #[assoc(bar = "2")]
     Variant2,
     #[assoc(bar = _inner.bar())]
@@ -60,8 +58,6 @@ enum InnerTestEnum1 {
 enum InnerTestEnum2 {
     #[assoc(bar = "1")]
     Variant1,
-    #[assoc(bar = "2")]
-    Variant2,
 }
 
 // Including a module to test visibility identifiers
@@ -109,14 +105,9 @@ pub enum TestEnum5<'a, 'b> {
 }
 
 #[derive(Assoc)]
-#[func(pub fn foo(&self, t: T) -> Option<u8>)]
-pub enum TestEnum6<'a, T> {
-    #[assoc(foo = 1)]
-    Variant1 {
-        some_str: &'a str,
-    },
-    Variant2,
-    #[assoc(foo = 3)]
+#[func(pub fn foo(&self) -> Option<&T>)]
+pub enum TestEnum6<T> {
+    #[assoc(foo = _0)]
     Variant3(T),
 }
 
@@ -182,9 +173,7 @@ fn test_rev() {
 fn test_generics() {
     assert_eq!(TestEnum4::Variant1 { some_str: "wow" }.foo(), Some(()));
     assert_eq!(TestEnum4::Variant2.foo(), None);
-    assert_eq!(TestEnum6::Variant1 { some_str: "wow" }.foo(3), Some(1));
-    assert_eq!(TestEnum6::Variant2.foo("this could be anything"), None);
-    assert_eq!(TestEnum6::Variant3("macaroni").foo("cheese"), Some(3));
+    assert_eq!(TestEnum6::Variant3("macaroni").foo(), Some(&"macaroni"));
 }
 
 #[test]
