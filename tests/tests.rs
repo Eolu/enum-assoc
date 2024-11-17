@@ -14,12 +14,9 @@ enum TestEnum {
     #[assoc(foo = 255)]
     #[assoc(bar = "wow")]
     Variant1,
-    #[assoc(foo = 1 + 7)]
-    #[assoc(bar = "wee")]
+    #[assoc(foo = 1 + 7, bar = "wee")]
     Variant2,
-    #[assoc(foo = 0)]
-    #[assoc(bar = WA)]
-    #[assoc(maybe_foo = 18 + 2)]
+    #[assoc(foo = 0, bar = WA, maybe_foo = 18 + 2)]
     Variant3,
 }
 

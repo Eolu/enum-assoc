@@ -1,8 +1,8 @@
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))]
 
 use proc_macro::TokenStream;
-use quote::quote;
-use syn::{spanned::Spanned, Attribute, Error, FnArg, ItemFn, Result, Variant};
+use quote::{quote, ToTokens};
+use syn::{parse::Parser, punctuated::Punctuated, spanned::Spanned, Attribute, Error, FnArg, ItemFn, Result, Token, Variant};
 
 const FUNC_ATTR: &'static str = "func";
 const ASSOC_ATTR: &'static str = "assoc";
@@ -22,8 +22,11 @@ fn impl_macro(ast: &syn::DeriveInput) -> Result<proc_macro2::TokenStream> {
     let fns = ast
         .attrs
         .iter()
-        .filter(|attr| attr.path.is_ident(FUNC_ATTR))
-        .map(|attr| DeriveFunc::parse_sig(&attr.tokens))
+        .filter(|attr| attr.path().is_ident(FUNC_ATTR))
+        .map(|attr| 
+        {
+            DeriveFunc::parse_sig(attr.meta.require_list().map(|list| &list.tokens)?)
+        })
         .collect::<Result<Vec<DeriveFunc>>>()?;
     let variants: Vec<&Variant> = if let syn::Data::Enum(data) = &ast.data {
         data.variants.iter().collect()
@@ -125,10 +128,7 @@ fn build_variant_arm(
 ) -> Result<(proc_macro2::TokenStream, Wildcard)> {
     // Partially parse associations
     let assocs =
-        Association::get_variant_assocs(variant, !has_self).filter(|result| match result {
-            Ok(assoc) => assoc.func == *func,
-            Err(_) => true,
-        });
+        Association::get_variant_assocs(variant, !has_self).filter(|assoc| assoc.func == *func);
     if has_self {
         build_fwd_assoc(assocs, variant, is_option, func, def)
     } else {
@@ -137,7 +137,7 @@ fn build_variant_arm(
 }
 
 fn build_fwd_assoc(
-    assocs: impl Iterator<Item = Result<Association>>,
+    assocs: impl Iterator<Item = Association>,
     variant: &Variant,
     is_option: bool,
     func_ident: &syn::Ident,
@@ -180,7 +180,14 @@ fn build_fwd_assoc(
         _ => quote!(),
     };
     let assocs = assocs
-        .map(|assoc| assoc.map(|assoc| assoc.assoc.unwrap_expr()))
+        .filter_map(|assoc| 
+        {
+            if let AssociationType::Forward(expr) = assoc.assoc {
+                Some(Ok(expr))
+            } else {
+                None
+            }
+        })
         .collect::<Result<Vec<syn::Expr>>>()?;
     match assocs.len() {
         0 => {
@@ -216,13 +223,20 @@ fn build_fwd_assoc(
 }
 
 fn build_rev_assoc(
-    assocs: impl Iterator<Item = Result<Association>>,
+    assocs: impl Iterator<Item = Association>,
     variant: &Variant,
     is_option: bool,
 ) -> Result<(proc_macro2::TokenStream, Wildcard)> {
     let var_ident = &variant.ident;
     let assocs = assocs
-        .map(|assoc| assoc.map(|assoc| assoc.assoc.unwrap_pat()))
+        .filter_map(|assoc| 
+        {
+            if let AssociationType::Reverse(pat) = assoc.assoc {
+                Some(Ok(pat))
+            } else {
+                None
+            }
+        })
         .collect::<Result<Vec<syn::Pat>>>()?;
     let mut concrete_pats: Vec<proc_macro2::TokenStream> = Vec::new();
     let mut wildcard_pat: Option<proc_macro2::TokenStream> = None;
@@ -275,11 +289,9 @@ struct Association {
     assoc: AssociationType,
 }
 
-/// An expression for a forward association, a pattern for a reverse
-/// association.
 enum AssociationType {
-    Expr(syn::Expr),
-    Pat(syn::Pat),
+    Forward(syn::Expr),
+    Reverse(syn::Pat),
 }
 
 /// For reverse associations, this enum keeps track of wldcard patterns. For
@@ -298,7 +310,6 @@ impl DeriveFunc {
     fn parse_sig(tokens: &proc_macro2::TokenStream) -> Result<Self> {
         let mut s = tokens.to_string();
         if s.len() > 2 {
-            s = format!("{}", &s[1..s.len() - 1]);
             let has_default = &s[s.len() - 1..s.len()] == "}";
 
             if !has_default {
@@ -328,78 +339,70 @@ impl DeriveFunc {
     }
 }
 
-impl Association {
-    fn new(attr: &Attribute, is_reverse: bool) -> Result<Self> {
-        let s = attr.tokens.to_string();
-        let s = &s[1..s.len() - 1];
-        let first_eq = match s.find("=") {
-            Some(result) => result,
-            None => {
-                return Err(Error::new_spanned(
-                    attr,
-                    "Invalid `assoc` attribute, missing `=`",
-                ))
-            }
-        };
-        Ok(Association {
-            func: match s[..first_eq].trim().parse() {
-                Ok(fn_name) => syn::parse2::<syn::Ident>(fn_name)?,
-                Err(_) => {
-                    return Err(Error::new_spanned(
-                        attr,
-                        "Invalid `assoc` attribute, failed to parse left side",
-                    ))
-                }
-            },
-            assoc: AssociationType::new(
-                s[first_eq + 1..]
-                    .trim()
-                    .parse::<proc_macro2::TokenStream>()?,
-                is_reverse,
-            )?,
-        })
-    }
-
-    fn get_variant_assocs(
-        variant: &Variant,
-        is_reverse: bool,
-    ) -> impl Iterator<Item = Result<Self>> + '_ {
-        variant
-            .attrs
-            .iter()
-            .filter(|assoc_attr| assoc_attr.path.is_ident(ASSOC_ATTR))
-            .map(move |attr| Association::new(attr, is_reverse))
+/// Used to parse forward associations, which are of form Ident = Expr
+struct ForwardAssocTokens(syn::Ident, syn::Expr);
+impl syn::parse::Parse for ForwardAssocTokens
+{
+    fn parse(input: syn::parse::ParseStream) -> Result<Self> {
+        let ident = input.parse()?;
+        input.parse::<syn::Token!(=)>()?;
+        let expr = input.parse()?;
+        Ok(Self(ident, expr))
     }
 }
 
-impl AssociationType {
-    fn new(tokens: proc_macro2::TokenStream, is_reverse: bool) -> Result<Self> {
-        if is_reverse {
-            syn::parse2::<syn::Pat>(tokens).map(AssociationType::Pat)
-        } else {
-            syn::parse2::<syn::Expr>(tokens).map(AssociationType::Expr)
+/// Used to parse reverse associations, which are of form Ident = Pat
+struct ReverseAssocTokens(syn::Ident, syn::Pat);
+impl syn::parse::Parse for ReverseAssocTokens
+{
+    fn parse(input: syn::parse::ParseStream) -> Result<Self> {
+        let ident = input.parse()?;
+        input.parse::<syn::Token!(=)>()?;
+        let pat = syn::Pat::parse_multi_with_leading_vert(input)?;
+        Ok(Self(ident, pat))
+    }
+}
+
+impl Into<Association> for ForwardAssocTokens
+{
+    fn into(self) -> Association {
+        Association {
+            func: self.0,
+            assoc: AssociationType::Forward(self.1),
         }
     }
+}
 
-    /// Appllicable to forward associations only
-    fn unwrap_expr(self) -> syn::Expr {
-        if let Self::Expr(expr) = self {
-            expr
-        } else {
-            // This should be unreachable. Seeing this means a forward
-            // association was parsed as if it were a reverse association.
-            panic!("Attempted to unwrap pattern as expression")
+impl Into<Association> for ReverseAssocTokens
+{
+    fn into(self) -> Association {
+        Association {
+            func: self.0,
+            assoc: AssociationType::Reverse(self.1),
         }
     }
+}
 
-    /// Appllicable to reverse associations only
-    fn unwrap_pat(self) -> syn::Pat {
-        if let Self::Pat(pat) = self {
-            pat
-        } else {
-            // This should be unreachable. Seeing this means a reverse
-            // association was parsed as if it were a forward association.
-            panic!("Attempted to unwrap expression as pattern")
-        }
+impl Association {
+    fn get_variant_assocs(
+        variant: &Variant,
+        is_reverse: bool,
+    ) -> impl Iterator<Item = Self> + '_ {
+        variant
+            .attrs
+            .iter()
+            .filter(|assoc_attr| assoc_attr.path().is_ident(ASSOC_ATTR))
+            .filter_map(move |attr| if let syn::Meta::List(meta_list) = &attr.meta { 
+                if is_reverse {
+                    let parser = Punctuated::<ReverseAssocTokens, Token![,]>::parse_terminated;
+                    parser.parse2(meta_list.tokens.clone()).map(|tokens| tokens.into_iter().map(|tokens| tokens.into()).collect::<Vec<Self>>()).ok() 
+                } else {
+                    let parser = Punctuated::<ForwardAssocTokens, Token![,]>::parse_terminated;
+                    parser.parse2(meta_list.tokens.clone()).map(|tokens| tokens.into_iter().map(|tokens| tokens.into()).collect::<Vec<Self>>()).ok()
+                }
+            } else {
+                 None 
+            })
+            .flat_map(std::convert::identity)
     }
 }

@@ -1,3 +1,8 @@
+# 1.1.1
+
+- Implemented comma-separated associations in a single attribute
+- Parsing logic improved to be more canon and sustainable (but still could be more so)
+
 # 1.1.0
 
 - Now capable of referencing variant fields within assoc.
