@@ -1,6 +1,7 @@
-# 1.2.1
+# 1.2.2
 
 - More parser improvements
+- Minor cleanup
 
 # 1.2.0
 

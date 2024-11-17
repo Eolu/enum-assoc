@@ -2,7 +2,7 @@
 
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
-use syn::{parenthesized, parse::Parser, punctuated::Punctuated, spanned::Spanned, Attribute, Error, FnArg, ItemFn, Result, Token, Variant};
+use syn::{parenthesized, parse::Parser, punctuated::Punctuated, spanned::Spanned, Error, FnArg, Result, Token, Variant};
 
 const FUNC_ATTR: &'static str = "func";
 const ASSOC_ATTR: &'static str = "assoc";
