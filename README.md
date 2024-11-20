@@ -211,7 +211,7 @@ Reverse associations work slightly differently than forward associations:
 - Unlike forward associations, any number of `assoc` attributes for the same function may be defined for a single enum variant.
 - Unlike forward associations, the `assoc` attribute defines a pattern rather than an expression. This is because reverse associations control the left side of a match arm rather than the right side.
 - The function generated will match on a tuple containing all of the function arguments.
-- Match arms will be ordered exactly as written from top to bottom with one excpetion: any wildcard pattern `_` will always be placed at the bottom.
+- Match arms will be ordered exactly as written from top to bottom with one exception: any wildcard pattern `_` will always be placed at the bottom.
 - There can be no more than 1 wildcard association for any reverse-associative function. Any more will result in a compile error.
 - If no wildcard pattern is defined for a function that returns `Option<Self>`, a `_ => None` arm will be inserted automatically.
 
