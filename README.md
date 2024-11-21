@@ -132,15 +132,15 @@ Variant3 baz: Some("1")
 
 ## Accessing enum fields in `assoc` attribute
 
-It is possible to access an enum variant field value in assoc attribute
-prefixing its name with an underscore. For tuples the names is composed of
-underscore prefix and field index.
+It is possible to access an enum variant field value in an assoc attribute
+by prefixing its name with an underscore. For tuples the name is composed of
+an underscore prefix and the field index.
 
 ```rust,ignore
 
 #[func(pub fn foo(&self) -> usize]
 pub enum TestEnum1 {
-    #[assoc(foo = s.len())]
+    #[assoc(foo = _s.len())]
     Variant1 { s: String },
 }
 
