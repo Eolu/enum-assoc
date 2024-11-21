@@ -27,11 +27,9 @@ enum TestEnum {
 enum TestEnum2 {
     #[assoc(bar = String::new() + param)]
     Variant1,
-    #[assoc(foo = 12 + param)]
-    #[assoc(bar = String::from("Hello") + param)]
+    #[assoc(foo = 12 + param, bar = String::from("Hello") + param)]
     Variant2,
-    #[assoc(bar = some_str_func("!"))]
-    #[assoc(baz = format!("{:?}", param))]
+    #[assoc(bar = some_str_func("!"), baz = format!("{:?}", param))]
     Variant3,
 }
 
@@ -69,16 +67,11 @@ mod some_mod {
     #[func(pub(crate) const fn bar(u: u8) -> Self)]
     #[func(pub fn baz(u1: u8, u2: u8) -> Self)]
     pub enum TestEnum3 {
-        #[assoc(foo = "variant1")]
-        #[assoc(bar = _)]
+        #[assoc(foo = "variant1", bar = _)]
         Variant1,
-        #[assoc(bar = 2)]
-        #[assoc(foo = "variant2")]
-        #[assoc(baz = (3, 7))]
+        #[assoc(bar = 2, foo = "variant2", baz = (3, 7))]
         Variant2,
-        #[assoc(foo = "I'm variant 3!")]
-        #[assoc(foo = "variant3")]
-        #[assoc(baz = _)]
+        #[assoc(foo = "I'm variant 3!", foo = "variant3", baz = _)]
         Variant3,
     }
 }

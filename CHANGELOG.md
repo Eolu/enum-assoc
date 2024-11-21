@@ -1,3 +1,7 @@
+# 1.2.4
+
+- Better tests.
+
 # 1.2.2
 
 - More parser improvements
