@@ -247,7 +247,7 @@ And every `#[assoc(fn_name = pattern)]` attribute for reverse associations gener
 
 ## Additional Syntax Sugar
 
-`func` attributes may contain multiple functionsm, forward or reverse. This will allow associations of _any_ of those functions to apply to all of them:
+`func` attributes may contain multiple functions, forward or reverse. This will allow associations of _any_ of those functions to apply to all of them:
 
 ```rust,ignore
 #[derive(Assoc, PartialEq, Debug)]
