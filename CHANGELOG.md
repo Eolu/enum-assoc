@@ -1,3 +1,7 @@
+# 1.3.0
+
+- Implemented the ability to put multiple functions in a single func attribute, allowing their "assoc" values to be inferred.
+
 # 1.2.4
 
 - Better tests.

@@ -2,7 +2,10 @@
 
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
-use syn::{parenthesized, parse::Parser, punctuated::Punctuated, spanned::Spanned, Error, FnArg, Result, Token, Variant};
+use syn::{
+    parenthesized, parse::Parser, punctuated::Punctuated, spanned::Spanned, Error, FnArg, Result,
+    Token, Variant,
+};
 
 const FUNC_ATTR: &'static str = "func";
 const ASSOC_ATTR: &'static str = "assoc";
@@ -23,8 +26,8 @@ fn impl_macro(ast: &syn::DeriveInput) -> Result<proc_macro2::TokenStream> {
         .attrs
         .iter()
         .filter(|attr| attr.path().is_ident(FUNC_ATTR))
-        .map(|attr| syn::parse2::<DeriveFunc>(attr.meta.to_token_stream()))
-        .collect::<Result<Vec<DeriveFunc>>>()?;
+        .map(|attr| syn::parse2::<DeriveFuncs>(attr.meta.to_token_stream()))
+        .collect::<Result<Vec<DeriveFuncs>>>()?;
     let variants: Vec<&Variant> = if let syn::Data::Enum(data) = &ast.data {
         data.variants.iter().collect()
     } else {
@@ -32,7 +35,12 @@ fn impl_macro(ast: &syn::DeriveInput) -> Result<proc_macro2::TokenStream> {
     };
     let functions: Vec<proc_macro2::TokenStream> = fns
         .into_iter()
-        .map(|func| build_function(&variants, func))
+        .flat_map(|DeriveFuncs(funcs)| {
+            funcs
+                .iter()
+                .map(|func| build_function(&variants, func, funcs.clone()))
+                .collect::<Vec<_>>()
+        })
         .collect::<Result<Vec<proc_macro2::TokenStream>>>()?;
     Ok(quote! {
         impl <#generic_params> #name #generics
@@ -43,7 +51,11 @@ fn impl_macro(ast: &syn::DeriveInput) -> Result<proc_macro2::TokenStream> {
     .into())
 }
 
-fn build_function(variants: &[&Variant], func: DeriveFunc) -> Result<proc_macro2::TokenStream> {
+fn build_function(
+    variants: &[&Variant],
+    func: &DeriveFunc,
+    associated_funcs: Vec<DeriveFunc>,
+) -> Result<proc_macro2::TokenStream> {
     let vis = &func.vis;
     let sig = &func.sig;
     // has_self determines whether or not this a reverse assoc
@@ -64,7 +76,16 @@ fn build_function(variants: &[&Variant], func: DeriveFunc) -> Result<proc_macro2
     };
     let mut arms = variants
         .iter()
-        .map(|variant| build_variant_arm(variant, &func.sig.ident, is_option, has_self, &func.def))
+        .map(|variant| {
+            build_variant_arm(
+                variant,
+                &func.sig.ident,
+                associated_funcs.iter().map(|func| func.sig.ident.clone()),
+                is_option,
+                has_self,
+                &func.def,
+            )
+        })
         .collect::<Result<Vec<(proc_macro2::TokenStream, Wildcard)>>>()?;
     if is_option
         && !arms
@@ -119,13 +140,15 @@ fn build_function(variants: &[&Variant], func: DeriveFunc) -> Result<proc_macro2
 fn build_variant_arm(
     variant: &Variant,
     func: &syn::Ident,
+    mut assoc_funcs: impl Iterator<Item = syn::Ident>,
     is_option: bool,
     has_self: bool,
     def: &Option<proc_macro2::TokenStream>,
 ) -> Result<(proc_macro2::TokenStream, Wildcard)> {
     // Partially parse associations
-    let assocs =
-        Association::get_variant_assocs(variant, !has_self).filter(|assoc| assoc.func == *func);
+    let assocs = Association::get_variant_assocs(variant, !has_self).filter(|assoc| {
+        assoc.func == *func || assoc_funcs.any(|assoc_func| assoc_func == assoc.func)
+    });
     if has_self {
         build_fwd_assoc(assocs, variant, is_option, func, def)
     } else {
@@ -177,8 +200,7 @@ fn build_fwd_assoc(
         _ => quote!(),
     };
     let assocs = assocs
-        .filter_map(|assoc| 
-        {
+        .filter_map(|assoc| {
             if let AssociationType::Forward(expr) = assoc.assoc {
                 Some(Ok(expr))
             } else {
@@ -226,8 +248,7 @@ fn build_rev_assoc(
 ) -> Result<(proc_macro2::TokenStream, Wildcard)> {
     let var_ident = &variant.ident;
     let assocs = assocs
-        .filter_map(|assoc| 
-        {
+        .filter_map(|assoc| {
             if let AssociationType::Reverse(pat) = assoc.assoc {
                 Some(Ok(pat))
             } else {
@@ -272,6 +293,7 @@ fn build_rev_assoc(
 /// A container for a function parsed within a `func` attribute. Note that the
 /// span of the `func` atribute is included because the syn nodes were
 /// manipulated as a string and have lost therr own span information.
+#[derive(Clone)]
 struct DeriveFunc {
     vis: syn::Visibility,
     sig: syn::Signature,
@@ -305,6 +327,28 @@ enum Wildcard {
 impl syn::parse::Parse for DeriveFunc {
     /// Parse a function signature from an attribute
     fn parse(input: syn::parse::ParseStream) -> Result<Self> {
+        let vis = input.parse::<syn::Visibility>()?;
+        let sig = input.parse::<syn::Signature>()?;
+        let def = if let Ok(block) = input.parse::<syn::Block>() {
+            Some(proc_macro2::TokenStream::from(ToTokens::into_token_stream(
+                block,
+            )))
+        } else {
+            None
+        };
+        Ok(DeriveFunc {
+            vis,
+            sig,
+            span: input.span(),
+            def,
+        })
+    }
+}
+
+struct DeriveFuncs(Vec<DeriveFunc>);
+impl syn::parse::Parse for DeriveFuncs {
+    /// Parse a list of function signatures form an attribute
+    fn parse(input: syn::parse::ParseStream) -> Result<Self> {
         input.step(|cursor| {
             if let Some((_, next)) = cursor.token_tree() {
                 Ok(((), next))
@@ -314,29 +358,17 @@ impl syn::parse::Parse for DeriveFunc {
         })?;
         let content;
         parenthesized!(content in input);
-        let vis = content.parse::<syn::Visibility>()?;
-        let sig = content.parse::<syn::Signature>()?;
-        let def = if content.is_empty() {
-            None
-        } else {
-            let block = content.parse::<syn::Block>()?;
-            Some(proc_macro2::TokenStream::from(ToTokens::into_token_stream(
-                block,
-            )))
-        };
-        Ok(DeriveFunc {
-            vis,
-            sig,
-            span: content.span(),
-            def,
-        })
+        Ok(Self(
+            content
+                .parse_terminated(DeriveFunc::parse, Token!(,))
+                .map(|parsed| parsed.into_iter().collect())?,
+        ))
     }
 }
 
 /// Used to parse forward associations, which are of form Ident = Expr
 struct ForwardAssocTokens(syn::Ident, syn::Expr);
-impl syn::parse::Parse for ForwardAssocTokens
-{
+impl syn::parse::Parse for ForwardAssocTokens {
     fn parse(input: syn::parse::ParseStream) -> Result<Self> {
         let ident = input.parse()?;
         input.parse::<syn::Token!(=)>()?;
@@ -347,8 +379,7 @@ impl syn::parse::Parse for ForwardAssocTokens
 
 /// Used to parse reverse associations, which are of form Ident = Pat
 struct ReverseAssocTokens(syn::Ident, syn::Pat);
-impl syn::parse::Parse for ReverseAssocTokens
-{
+impl syn::parse::Parse for ReverseAssocTokens {
     fn parse(input: syn::parse::ParseStream) -> Result<Self> {
         let ident = input.parse()?;
         input.parse::<syn::Token!(=)>()?;
@@ -357,8 +388,7 @@ impl syn::parse::Parse for ReverseAssocTokens
     }
 }
 
-impl Into<Association> for ForwardAssocTokens
-{
+impl Into<Association> for ForwardAssocTokens {
     fn into(self) -> Association {
         Association {
             func: self.0,
@@ -367,8 +397,7 @@ impl Into<Association> for ForwardAssocTokens
     }
 }
 
-impl Into<Association> for ReverseAssocTokens
-{
+impl Into<Association> for ReverseAssocTokens {
     fn into(self) -> Association {
         Association {
             func: self.0,
@@ -378,24 +407,39 @@ impl Into<Association> for ReverseAssocTokens
 }
 
 impl Association {
-    fn get_variant_assocs(
-        variant: &Variant,
-        is_reverse: bool,
-    ) -> impl Iterator<Item = Self> + '_ {
+    fn get_variant_assocs(variant: &Variant, is_reverse: bool) -> impl Iterator<Item = Self> + '_ {
         variant
             .attrs
             .iter()
             .filter(|assoc_attr| assoc_attr.path().is_ident(ASSOC_ATTR))
-            .filter_map(move |attr| if let syn::Meta::List(meta_list) = &attr.meta { 
-                if is_reverse {
-                    let parser = Punctuated::<ReverseAssocTokens, Token![,]>::parse_terminated;
-                    parser.parse2(meta_list.tokens.clone()).map(|tokens| tokens.into_iter().map(|tokens| tokens.into()).collect::<Vec<Self>>()).ok() 
+            .filter_map(move |attr| {
+                if let syn::Meta::List(meta_list) = &attr.meta {
+                    if is_reverse {
+                        let parser = Punctuated::<ReverseAssocTokens, Token![,]>::parse_terminated;
+                        parser
+                            .parse2(meta_list.tokens.clone())
+                            .map(|tokens| {
+                                tokens
+                                    .into_iter()
+                                    .map(|tokens| tokens.into())
+                                    .collect::<Vec<Self>>()
+                            })
+                            .ok()
+                    } else {
+                        let parser = Punctuated::<ForwardAssocTokens, Token![,]>::parse_terminated;
+                        parser
+                            .parse2(meta_list.tokens.clone())
+                            .map(|tokens| {
+                                tokens
+                                    .into_iter()
+                                    .map(|tokens| tokens.into())
+                                    .collect::<Vec<Self>>()
+                            })
+                            .ok()
+                    }
                 } else {
-                    let parser = Punctuated::<ForwardAssocTokens, Token![,]>::parse_terminated;
-                    parser.parse2(meta_list.tokens.clone()).map(|tokens| tokens.into_iter().map(|tokens| tokens.into()).collect::<Vec<Self>>()).ok()
+                    None
                 }
-            } else {
-                 None 
             })
             .flat_map(std::convert::identity)
     }

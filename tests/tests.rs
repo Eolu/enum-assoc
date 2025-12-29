@@ -174,3 +174,15 @@ fn test_default() {
     assert_eq!(TestEnumWithDefault::ValueSet.foo(), 1);
     assert_eq!(TestEnumWithDefault::UsingDefault.foo(), 0);
 }
+
+#[test]
+fn test_multi_funcs() {
+    #[derive(Assoc, PartialEq, Debug)]
+    #[func(pub fn forward(&self) -> u8, pub fn reverse(rev: u8) -> Option<Self>)]
+    enum TestMultiFunc {
+        #[assoc(forward = 10)]
+        Variant,
+    }
+    assert_eq!(TestMultiFunc::Variant.forward(), 10);
+    assert_eq!(TestMultiFunc::reverse(10), Some(TestMultiFunc::Variant));
+}

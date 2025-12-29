@@ -244,3 +244,23 @@ And every `#[assoc(fn_name = pattern)]` attribute for reverse associations gener
 ```rust,ignore
     pattern => variant_name,
 ```
+
+## Additional Syntax Sugar
+
+`func` attributes may contain multiple functionsm, forward or reverse. This will allow associations of _any_ of those functions to apply to all of them:
+
+```rust,ignore
+#[derive(Assoc, PartialEq, Debug)]
+#[func(
+    pub fn forward(&self) -> u8, 
+    pub fn reverse(rev: u8) -> Option<Self>
+)]
+enum TestMultiFunc {
+    #[assoc(forward = 10)]
+    Variant,
+}
+assert_eq!(TestMultiFunc::Variant.forward(), 10);
+assert_eq!(TestMultiFunc::reverse(10), Some(TestMultiFunc::Variant));
+```
+
+Note that because the value in the assoc attribute must be correctly parsable as both an expression and a pattern, this creates additional expressability limitations.
