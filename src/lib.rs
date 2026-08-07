@@ -1,14 +1,14 @@
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))]
 
 use proc_macro::TokenStream;
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use syn::{
-    parenthesized, parse::Parser, punctuated::Punctuated, spanned::Spanned, Error, FnArg, Result,
-    Token, Variant,
+    Error, FnArg, Result, Token, Variant, parenthesized, parse::Parser, punctuated::Punctuated,
+    spanned::Spanned,
 };
 
-const FUNC_ATTR: &'static str = "func";
-const ASSOC_ATTR: &'static str = "assoc";
+const FUNC_ATTR: &str = "func";
+const ASSOC_ATTR: &str = "assoc";
 
 #[proc_macro_derive(Assoc, attributes(func, assoc))]
 pub fn derive_assoc(input: TokenStream) -> TokenStream {
@@ -47,8 +47,7 @@ fn impl_macro(ast: &syn::DeriveInput) -> Result<proc_macro2::TokenStream> {
         {
             #(#functions)*
         }
-    }
-    .into())
+    })
 }
 
 fn build_function(
@@ -95,7 +94,7 @@ fn build_function(
         arms.push((quote!(_ => None,), Wildcard::True))
     }
     // make sure wildcards are last
-    if has_self == false {
+    if !has_self {
         arms.sort_by(|(_, wildcard1), (_, wildcard2)| wildcard1.cmp(wildcard2));
     }
     let arms = arms.into_iter().map(|(toks, _)| toks);
@@ -172,10 +171,7 @@ fn build_fwd_assoc(
                 .map(|f| {
                     let ident = &f.ident;
                     let val: &Option<proc_macro2::Ident> = &f.ident.as_ref().map(|s| {
-                        proc_macro2::Ident::new(
-                            &("_".to_string() + &s.to_string()),
-                            f.span().clone(),
-                        )
+                        proc_macro2::Ident::new(&("_".to_string() + &s.to_string()), f.span())
                     });
                     quote!(#ident: #val)
                 })
@@ -188,10 +184,8 @@ fn build_fwd_assoc(
                 .iter()
                 .enumerate()
                 .map(|(i, f)| {
-                    let ident = proc_macro2::Ident::new(
-                        &("_".to_string() + &i.to_string()),
-                        f.span().clone(),
-                    );
+                    let ident =
+                        proc_macro2::Ident::new(&("_".to_string() + &i.to_string()), f.span());
                     quote!(#ident)
                 })
                 .collect::<Vec<proc_macro2::TokenStream>>();
@@ -388,20 +382,20 @@ impl syn::parse::Parse for ReverseAssocTokens {
     }
 }
 
-impl Into<Association> for ForwardAssocTokens {
-    fn into(self) -> Association {
+impl From<ForwardAssocTokens> for Association {
+    fn from(val: ForwardAssocTokens) -> Self {
         Association {
-            func: self.0,
-            assoc: AssociationType::Forward(self.1),
+            func: val.0,
+            assoc: AssociationType::Forward(val.1),
         }
     }
 }
 
-impl Into<Association> for ReverseAssocTokens {
-    fn into(self) -> Association {
+impl From<ReverseAssocTokens> for Association {
+    fn from(val: ReverseAssocTokens) -> Self {
         Association {
-            func: self.0,
-            assoc: AssociationType::Reverse(self.1),
+            func: val.0,
+            assoc: AssociationType::Reverse(val.1),
         }
     }
 }
@@ -441,6 +435,6 @@ impl Association {
                     None
                 }
             })
-            .flat_map(std::convert::identity)
+            .flatten()
     }
 }

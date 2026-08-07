@@ -1,7 +1,7 @@
 use enum_assoc::Assoc;
 
 // A bit of mock data
-const WA: &'static str = "wa";
+const WA: &str = "wa";
 fn some_str_func(s: &'static str) -> String {
     String::from("I was created in a function") + s
 }
