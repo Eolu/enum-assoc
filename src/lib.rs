@@ -43,6 +43,7 @@ fn impl_macro(ast: &syn::DeriveInput) -> Result<proc_macro2::TokenStream> {
         })
         .collect::<Result<Vec<proc_macro2::TokenStream>>>()?;
     Ok(quote! {
+        #[allow(clippy::used_underscore_binding)]
         impl <#generic_params> #name #generics
         {
             #(#functions)*
