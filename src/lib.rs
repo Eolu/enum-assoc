@@ -3,8 +3,8 @@
 use proc_macro::TokenStream;
 use quote::{ToTokens, quote};
 use syn::{
-    Error, FnArg, Result, Token, Variant, parenthesized, parse::Parser, punctuated::Punctuated,
-    spanned::Spanned,
+    Error, FnArg, Result, Token, Type, Variant, braced, parenthesized, parse::Parser,
+    punctuated::Punctuated, spanned::Spanned,
 };
 
 const FUNC_ATTR: &str = "func";
@@ -22,6 +22,7 @@ fn impl_macro(ast: &syn::DeriveInput) -> Result<proc_macro2::TokenStream> {
     let name = &ast.ident;
     let generics = &ast.generics;
     let generic_params = &generics.params;
+    let where_clause = &generics.where_clause;
     let fns = ast
         .attrs
         .iter()
@@ -33,32 +34,109 @@ fn impl_macro(ast: &syn::DeriveInput) -> Result<proc_macro2::TokenStream> {
     } else {
         panic!("#[derive(Assoc)] only applicable to enums")
     };
-    let functions: Vec<proc_macro2::TokenStream> = fns
-        .into_iter()
-        .flat_map(|DeriveFuncs(funcs)| {
-            funcs
-                .iter()
-                .map(|func| build_function(&variants, func, funcs.clone()))
-                .collect::<Vec<_>>()
-        })
-        .collect::<Result<Vec<proc_macro2::TokenStream>>>()?;
-    Ok(quote! {
-        #[allow(clippy::used_underscore_binding)]
-        impl <#generic_params> #name #generics
-        {
-            #(#functions)*
+    let mut impls: Vec<proc_macro2::TokenStream> = Vec::new();
+    for DeriveFuncs(items) in fns {
+        let mut associated_funcs = Vec::new();
+        for item in &items {
+            match item {
+                DeriveItem::Func(func) => associated_funcs.push(func.assoc_name.clone()),
+                DeriveItem::Impl(imp) => {
+                    associated_funcs.extend(imp.funcs.iter().map(|f| f.assoc_name.clone()))
+                }
+            }
         }
-    })
+        let mut functions = Vec::new();
+        for item in items {
+            match item {
+                DeriveItem::Func(func) => functions.push(build_function(
+                    &variants,
+                    &func,
+                    &associated_funcs,
+                    name,
+                    false,
+                )?),
+                DeriveItem::Impl(imp) => {
+                    // A trait implementation for a type other than the enum cannot
+                    // return enum variants, so all of its methods are forward
+                    // associations even when they have no `self` parameter.
+                    let trait_impl_for_other =
+                        imp.trait_.is_some() && !type_is_enum(&imp.self_ty, name);
+                    let mut methods = Vec::new();
+                    for func in &imp.funcs {
+                        if imp.trait_.is_some() && !matches!(func.vis, syn::Visibility::Inherited) {
+                            return Err(Error::new_spanned(
+                                &func.vis,
+                                "Trait implementation methods cannot have a visibility modifier",
+                            ));
+                        }
+                        methods.push(build_function(
+                            &variants,
+                            func,
+                            &associated_funcs,
+                            name,
+                            trait_impl_for_other,
+                        )?);
+                    }
+                    impls.push(build_impl(imp, &methods));
+                }
+            }
+        }
+        if !functions.is_empty() {
+            impls.push(quote! {
+                #[allow(clippy::used_underscore_binding)]
+                impl <#generic_params> #name #generics #where_clause
+                {
+                    #(#functions)*
+                }
+            });
+        }
+    }
+    Ok(quote! { #(#impls)* })
+}
+
+fn build_impl(imp: DeriveImpl, methods: &[proc_macro2::TokenStream]) -> proc_macro2::TokenStream {
+    let unsafety = &imp.unsafety;
+    let generics = &imp.generics;
+    let where_clause = &generics.where_clause;
+    let self_ty = &imp.self_ty;
+    let header = if let Some((bang, trait_path, for_token)) = &imp.trait_ {
+        quote!(impl #generics #bang #trait_path #for_token #self_ty #where_clause)
+    } else {
+        quote!(impl #generics #self_ty #where_clause)
+    };
+    quote! {
+        #[allow(clippy::used_underscore_binding)]
+        #unsafety #header
+        {
+            #(#methods)*
+        }
+    }
+}
+
+fn type_is_enum(ty: &Type, name: &syn::Ident) -> bool {
+    match ty {
+        Type::Path(type_path) if type_path.qself.is_none() => type_path
+            .path
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == *name),
+        Type::Group(group) => type_is_enum(&group.elem, name),
+        Type::Paren(paren) => type_is_enum(&paren.elem, name),
+        _ => false,
+    }
 }
 
 fn build_function(
     variants: &[&Variant],
     func: &DeriveFunc,
-    associated_funcs: Vec<DeriveFunc>,
+    associated_funcs: &[syn::Ident],
+    enum_name: &syn::Ident,
+    trait_impl_for_other: bool,
 ) -> Result<proc_macro2::TokenStream> {
     let vis = &func.vis;
     let sig = &func.sig;
-    // has_self determines whether or not this a reverse assoc
+    // has_self determines whether or not this a reverse assoc, except for trait
+    // implementations on other types, which can only use forward associations.
     let has_self = match func.sig.inputs.first() {
         Some(FnArg::Receiver(_)) => true,
         Some(FnArg::Typed(pat_type)) => {
@@ -66,6 +144,14 @@ fn build_function(
             quote!(#pat).to_string().trim() == "self"
         }
         None => false,
+    };
+    let is_reverse = !has_self && !trait_impl_for_other;
+    // `Self` is the enum in inherent impls and in trait impls for the enum
+    // itself, but it is a different type in trait impls on other types.
+    let enum_path = if trait_impl_for_other {
+        quote!(#enum_name)
+    } else {
+        quote!(Self)
     };
     let is_option = if let syn::ReturnType::Type(_, ty) = &func.sig.output {
         let s = quote!(#ty).to_string();
@@ -79,11 +165,12 @@ fn build_function(
         .map(|variant| {
             build_variant_arm(
                 variant,
-                &func.sig.ident,
-                associated_funcs.iter().map(|func| func.sig.ident.clone()),
+                &func.assoc_name,
+                associated_funcs.iter().cloned(),
                 is_option,
-                has_self,
+                is_reverse,
                 &func.def,
+                &enum_path,
             )
         })
         .collect::<Result<Vec<(proc_macro2::TokenStream, Wildcard)>>>()?;
@@ -95,15 +182,11 @@ fn build_function(
         arms.push((quote!(_ => None,), Wildcard::True))
     }
     // make sure wildcards are last
-    if !has_self {
+    if is_reverse {
         arms.sort_by(|(_, wildcard1), (_, wildcard2)| wildcard1.cmp(wildcard2));
     }
     let arms = arms.into_iter().map(|(toks, _)| toks);
-    let match_on = if has_self {
-        quote!(self)
-    } else if func.sig.inputs.is_empty() {
-        return Err(syn::Error::new(func.span, "Missing parameter"));
-    } else {
+    let match_on = if is_reverse {
         let mut result = quote!();
         for input in &func.sig.inputs {
             match input {
@@ -121,10 +204,23 @@ fn build_function(
                 }
             }
         }
+        if func.sig.inputs.is_empty() {
+            return Err(syn::Error::new(func.span, "Missing parameter"));
+        }
         if func.sig.inputs.len() > 1 {
             result = quote!((#result));
         }
         result
+    } else if has_self {
+        quote!(self)
+    } else {
+        match func.sig.inputs.first() {
+            Some(FnArg::Typed(pat_type)) => {
+                let pat = &pat_type.pat;
+                quote!(#pat)
+            }
+            _ => return Err(syn::Error::new(func.span, "Missing parameter")),
+        }
     };
     Ok(quote! {
         #vis #sig
@@ -142,17 +238,18 @@ fn build_variant_arm(
     func: &syn::Ident,
     mut assoc_funcs: impl Iterator<Item = syn::Ident>,
     is_option: bool,
-    has_self: bool,
+    is_reverse: bool,
     def: &Option<proc_macro2::TokenStream>,
+    enum_path: &proc_macro2::TokenStream,
 ) -> Result<(proc_macro2::TokenStream, Wildcard)> {
     // Partially parse associations
-    let assocs = Association::get_variant_assocs(variant, !has_self).filter(|assoc| {
+    let assocs = Association::get_variant_assocs(variant, is_reverse).filter(|assoc| {
         assoc.func == *func || assoc_funcs.any(|assoc_func| assoc_func == assoc.func)
     });
-    if has_self {
-        build_fwd_assoc(assocs, variant, is_option, func, def)
+    if is_reverse {
+        build_rev_assoc(assocs, variant, is_option, enum_path)
     } else {
-        build_rev_assoc(assocs, variant, is_option)
+        build_fwd_assoc(assocs, variant, is_option, func, def, enum_path)
     }
 }
 
@@ -162,6 +259,7 @@ fn build_fwd_assoc(
     is_option: bool,
     func_ident: &syn::Ident,
     def: &Option<proc_macro2::TokenStream>,
+    enum_path: &proc_macro2::TokenStream,
 ) -> Result<(proc_macro2::TokenStream, Wildcard)> {
     let var_ident = &variant.ident;
     let fields = match &variant.fields {
@@ -206,9 +304,9 @@ fn build_fwd_assoc(
     match assocs.len() {
         0 => {
             if let Some(tokens) = def {
-                Ok(quote! { Self::#var_ident #fields => #tokens, })
+                Ok(quote! { #enum_path::#var_ident #fields => #tokens, })
             } else if is_option {
-                Ok(quote! { Self::#var_ident #fields => None, })
+                Ok(quote! { #enum_path::#var_ident #fields => None, })
             } else {
                 Err(Error::new_spanned(
                     variant,
@@ -220,12 +318,12 @@ fn build_fwd_assoc(
             let val = &assocs[0];
             if is_option {
                 if quote!(#val).to_string().trim() == "None" {
-                    Ok(quote! { Self::#var_ident #fields => #val, })
+                    Ok(quote! { #enum_path::#var_ident #fields => #val, })
                 } else {
-                    Ok(quote! { Self::#var_ident #fields => Some(#val), })
+                    Ok(quote! { #enum_path::#var_ident #fields => Some(#val), })
                 }
             } else {
-                Ok(quote! { Self::#var_ident #fields => #val, })
+                Ok(quote! { #enum_path::#var_ident #fields => #val, })
             }
         }
         _ => Err(Error::new_spanned(
@@ -240,6 +338,7 @@ fn build_rev_assoc(
     assocs: impl Iterator<Item = Association>,
     variant: &Variant,
     is_option: bool,
+    enum_path: &proc_macro2::TokenStream,
 ) -> Result<(proc_macro2::TokenStream, Wildcard)> {
     let var_ident = &variant.ident;
     let assocs = assocs
@@ -262,9 +361,9 @@ fn build_rev_assoc(
             ));
         }
         let arm = if is_option {
-            quote!(#pat => Some(Self::#var_ident),)
+            quote!(#pat => Some(#enum_path::#var_ident),)
         } else {
-            quote!(#pat => Self::#var_ident,)
+            quote!(#pat => #enum_path::#var_ident,)
         };
         if matches!(pat, syn::Pat::Wild(_)) {
             if wildcard_pat.is_some() {
@@ -292,8 +391,31 @@ fn build_rev_assoc(
 struct DeriveFunc {
     vis: syn::Visibility,
     sig: syn::Signature,
+    /// The name used to look up associations for this function. This defaults
+    /// to the function name but can be overridden with `as <ident>` after the
+    /// signature, which is necessary when multiple trait methods share a name
+    /// (for example, several `From::from` implementations).
+    assoc_name: syn::Ident,
     span: proc_macro2::Span,
     def: Option<proc_macro2::TokenStream>,
+}
+
+/// An item parsed from a `func` attribute: either an inherent function or an
+/// `impl` block whose method bodies are generated by this macro.
+enum DeriveItem {
+    Func(DeriveFunc),
+    Impl(DeriveImpl),
+}
+
+/// A trait or inherent `impl` block parsed from a `func` attribute. The methods
+/// are generated in the same way as functions declared directly in a `func`
+/// attribute.
+struct DeriveImpl {
+    unsafety: Option<Token![unsafe]>,
+    generics: syn::Generics,
+    trait_: Option<(Option<Token![!]>, syn::Path, Token![for])>,
+    self_ty: syn::Type,
+    funcs: Vec<DeriveFunc>,
 }
 
 /// An association. Contains a function ident as well as the actual tokens of
@@ -324,23 +446,89 @@ impl syn::parse::Parse for DeriveFunc {
     fn parse(input: syn::parse::ParseStream) -> Result<Self> {
         let vis = input.parse::<syn::Visibility>()?;
         let sig = input.parse::<syn::Signature>()?;
-        let def = if let Ok(block) = input.parse::<syn::Block>() {
-            Some(proc_macro2::TokenStream::from(ToTokens::into_token_stream(
-                block,
-            )))
+        let span = sig.ident.span();
+        let assoc_name = if input.peek(Token![as]) {
+            input.parse::<Token![as]>()?;
+            input.parse::<syn::Ident>()?
+        } else {
+            sig.ident.clone()
+        };
+        let def = if input.peek(syn::token::Brace) {
+            let block = input.parse::<syn::Block>()?;
+            Some(ToTokens::into_token_stream(block))
         } else {
             None
         };
         Ok(DeriveFunc {
             vis,
             sig,
-            span: input.span(),
+            assoc_name,
+            span,
             def,
         })
     }
 }
 
-struct DeriveFuncs(Vec<DeriveFunc>);
+impl syn::parse::Parse for DeriveItem {
+    fn parse(input: syn::parse::ParseStream) -> Result<Self> {
+        let is_impl =
+            input.peek(Token![impl]) || (input.peek(Token![unsafe]) && input.peek2(Token![impl]));
+        if is_impl {
+            Ok(DeriveItem::Impl(input.parse()?))
+        } else {
+            Ok(DeriveItem::Func(input.parse()?))
+        }
+    }
+}
+
+impl syn::parse::Parse for DeriveImpl {
+    fn parse(input: syn::parse::ParseStream) -> Result<Self> {
+        let unsafety = input.parse::<Option<Token![unsafe]>>()?;
+        input.parse::<Token![impl]>()?;
+        let mut generics = input.parse::<syn::Generics>()?;
+        let bang = input.parse::<Option<Token![!]>>()?;
+        let first_path = input.parse::<syn::Path>()?;
+        let (trait_, self_ty) = if input.peek(Token![for]) {
+            let for_token = input.parse::<Token![for]>()?;
+            let self_ty = input.parse::<syn::Type>()?;
+            (Some((bang, first_path, for_token)), self_ty)
+        } else {
+            if let Some(bang) = bang {
+                return Err(Error::new(
+                    bang.span,
+                    "`!` is only allowed in trait implementations",
+                ));
+            }
+            (
+                None,
+                syn::Type::Path(syn::TypePath {
+                    attrs: Vec::new(),
+                    qself: None,
+                    path: first_path,
+                }),
+            )
+        };
+        generics.where_clause = input.parse::<Option<syn::WhereClause>>()?;
+        let content;
+        braced!(content in input);
+        let mut funcs = Vec::new();
+        while !content.is_empty() {
+            funcs.push(content.parse::<DeriveFunc>()?);
+            if content.peek(Token![,]) {
+                content.parse::<Token![,]>()?;
+            }
+        }
+        Ok(DeriveImpl {
+            unsafety,
+            generics,
+            trait_,
+            self_ty,
+            funcs,
+        })
+    }
+}
+
+struct DeriveFuncs(Vec<DeriveItem>);
 impl syn::parse::Parse for DeriveFuncs {
     /// Parse a list of function signatures form an attribute
     fn parse(input: syn::parse::ParseStream) -> Result<Self> {
@@ -355,7 +543,7 @@ impl syn::parse::Parse for DeriveFuncs {
         parenthesized!(content in input);
         Ok(Self(
             content
-                .parse_terminated(DeriveFunc::parse, Token!(,))
+                .parse_terminated(DeriveItem::parse, Token!(,))
                 .map(|parsed| parsed.into_iter().collect())?,
         ))
     }

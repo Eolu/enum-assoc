@@ -1,3 +1,7 @@
+# 1.4.2
+
+- `func` attributes can now contain `impl` blocks, allowing trait methods (and inherent impl blocks) to be generated directly. Methods may use an `as <ident>` association alias when several methods share a name.
+
 # 1.4.0
 
 - Updated to Rust 2024

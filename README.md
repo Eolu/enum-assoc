@@ -245,6 +245,52 @@ And every `#[assoc(fn_name = pattern)]` attribute for reverse associations gener
     pattern => variant_name,
 ```
 
+## Trait implementations
+
+`func` attributes can also contain `impl` blocks. This allows the macro to generate the method bodies for a trait implementation directly, without an intermediate inherent method:
+
+```rust
+use enum_assoc::Assoc;
+
+#[derive(Debug, PartialEq, Eq)]
+struct ErrorCode(u8);
+
+#[derive(Assoc, Debug)]
+#[func(impl std::fmt::Display for MyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result
+})]
+#[func(impl From<&MyError> for ErrorCode {
+    fn from(other: &MyError) -> Self as code
+})]
+enum MyError {
+    #[assoc(fmt = write!(f, "unit"))]
+    #[assoc(code = ErrorCode(0))]
+    Unit,
+    #[assoc(fmt = write!(f, "{}", _0))]
+    #[assoc(code = ErrorCode(1))]
+    Message(String),
+}
+
+fn main() {
+    assert_eq!(format!("{}", MyError::Unit), "unit");
+    assert_eq!(format!("{}", MyError::Message("hello".into())), "hello");
+    assert_eq!(ErrorCode::from(&MyError::Unit), ErrorCode(0));
+    assert_eq!(
+        ErrorCode::from(&MyError::Message("hello".into())),
+        ErrorCode(1)
+    );
+}
+```
+
+Both inherent and trait `impl` blocks are supported. For trait implementations:
+
+- The impl header (generics, trait path, type, and where clause) is copied verbatim.
+- Methods with a `self` receiver work exactly like inherent forward associations.
+- A method without a `self` receiver in a trait impl for a type other than the enum is treated as a forward association and matches its first parameter. This is useful for conversion traits like `From`, e.g. `fn from(other: &MyError) -> Self`.
+- A method without a `self` receiver in a trait impl for the enum itself is treated as a reverse association, just like an inherent function.
+- Visibility modifiers are not allowed on trait implementation methods.
+- A method signature may be followed by `as <ident>` to use a different association key. This is necessary when multiple trait methods share the same name, such as two different `From` implementations. In the example above, `fn from(...) -> Self as code` looks up associations with the name `code` instead of `from`.
+
 ## Additional Syntax Sugar
 
 `func` attributes may contain multiple functions, forward or reverse. This will allow associations of _any_ of those functions to apply to all of them:

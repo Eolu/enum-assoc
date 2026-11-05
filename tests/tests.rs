@@ -186,3 +186,100 @@ fn test_multi_funcs() {
     assert_eq!(TestMultiFunc::Variant.forward(), 10);
     assert_eq!(TestMultiFunc::reverse(10), Some(TestMultiFunc::Variant));
 }
+
+#[derive(Debug, PartialEq, Eq)]
+struct ErrorCode(u8);
+
+#[derive(Assoc, Debug)]
+#[func(impl std::fmt::Display for TraitImplEnum {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result
+})]
+#[func(impl From<&TraitImplEnum> for ErrorCode {
+    fn from(other: &TraitImplEnum) -> Self as code
+})]
+#[func(impl<'a> From<&'a TraitImplEnum> for &'a str {
+    fn from(other: &'a TraitImplEnum) -> Self as label
+})]
+enum TraitImplEnum {
+    #[assoc(fmt = write!(f, "unit"))]
+    #[assoc(code = ErrorCode(0))]
+    #[assoc(label = "unit")]
+    Unit,
+    #[assoc(fmt = write!(f, "{}", _0))]
+    #[assoc(code = ErrorCode(1))]
+    #[assoc(label = _0.as_str())]
+    Message(String),
+    #[assoc(fmt = write!(f, "{}", _text))]
+    #[assoc(code = ErrorCode(2))]
+    #[assoc(label = _text.as_str())]
+    Named { text: String },
+}
+
+#[derive(Assoc, Debug, PartialEq, Eq)]
+#[func(impl From<u8> for ReverseTraitImplEnum {
+    fn from(value: u8) -> Self
+})]
+enum ReverseTraitImplEnum {
+    #[assoc(from = 1)]
+    One,
+    #[assoc(from = _)]
+    Other,
+}
+
+#[derive(Assoc, Debug, PartialEq, Eq)]
+#[func(impl InherentImplEnum {
+    pub fn value(&self) -> u8
+})]
+enum InherentImplEnum {
+    #[assoc(value = 42)]
+    Variant,
+}
+
+#[test]
+fn test_trait_impls() {
+    assert_eq!(format!("{}", TraitImplEnum::Unit), "unit");
+    assert_eq!(
+        format!("{}", TraitImplEnum::Message("hello".into())),
+        "hello"
+    );
+    assert_eq!(
+        format!(
+            "{}",
+            TraitImplEnum::Named {
+                text: "hello".into()
+            }
+        ),
+        "hello"
+    );
+
+    assert_eq!(ErrorCode::from(&TraitImplEnum::Unit), ErrorCode(0));
+    assert_eq!(
+        ErrorCode::from(&TraitImplEnum::Message("hello".into())),
+        ErrorCode(1)
+    );
+    assert_eq!(
+        ErrorCode::from(&TraitImplEnum::Named {
+            text: "hello".into()
+        }),
+        ErrorCode(2)
+    );
+
+    let message = TraitImplEnum::Message("hello".into());
+    let named = TraitImplEnum::Named {
+        text: "hello".into(),
+    };
+    assert_eq!(<&str>::from(&TraitImplEnum::Unit), "unit");
+    assert_eq!(<&str>::from(&message), "hello");
+    assert_eq!(<&str>::from(&named), "hello");
+}
+
+#[test]
+fn test_reverse_trait_impl() {
+    assert_eq!(ReverseTraitImplEnum::from(1), ReverseTraitImplEnum::One);
+    assert_eq!(ReverseTraitImplEnum::from(2), ReverseTraitImplEnum::Other);
+}
+
+#[test]
+fn test_inherent_impl() {
+    assert_eq!(InherentImplEnum::Variant.value(), 42);
+}
